@@ -1,4 +1,3 @@
-"""
 MBM WNBA daily runner (rebuild v1.1, frozen spec).
 - Downloads wehoop parquet history, fetches today's slate + ESPN injury report
 - Builds features as of now, fits frozen-window model (train 2019-2025 only), predicts slate
