@@ -24,7 +24,8 @@ SPEC = json.load(open(os.path.join(HERE, "model_spec.json")))
 CFG, C, A0 = SPEC["cfg"], SPEC["C"], SPEC["a0"]
 TRAIN_LO, TRAIN_HI = 2019, 2025  # frozen through end of 2025; rest of 2026 = forward test
 
-MIN_EDGE = 0.05  # required margin: threshold odds pay 5% above model breakeven
+MIN_EDGE = 0.05
+CAL_MIN_GP = 8   # value lines unlock when every team has this many GP  # required margin: threshold odds pay 5% above model breakeven
 
 def min_odds(p):
     import math
@@ -137,6 +138,14 @@ def run(datestr):
         lo = np.log(np.clip(p, 1e-6, 1 - 1e-6) / (1 - np.clip(p, 1e-6, 1 - 1e-6)))
         return 1 / (1 + np.exp(-alpha * lo))
 
+    yr = gdate.year
+    season_g = g[g.season == yr]
+    teams_all = set(season_g.home_abbreviation) | set(season_g.away_abbreviation)
+    done = season_g[season_g.home_win.notna()]
+    counts = pd.concat([done.home_abbreviation, done.away_abbreviation]).value_counts()
+    gate_open = (len(teams_all) > 0 and len(counts) >= len(teams_all)
+                 and (counts.min() if len(counts) else 0) >= CAL_MIN_GP)
+
     alerts = []
     os.makedirs(LOGS, exist_ok=True)
     pred_path = os.path.join(LOGS, "predictions.csv")
@@ -152,10 +161,12 @@ def run(datestr):
         board.insert(0, "date", datestr)
         board["model"] = "v1.1"
         log = pd.concat([log[~log.game_id.isin(board.game_id)], board], ignore_index=True)
-        print(f"\n=== MBM WNBA board {datestr} ===")
+        gate_txt = "" if gate_open else f"  [CALIBRATION: no betting until every team has {CAL_MIN_GP} GP]"
+        print(f"\n=== MBM WNBA board {datestr} ==={gate_txt}")
         for _, r in board.iterrows():
-            print(f"{r.away:>4} @ {r.home:<4}  p(home)={r.p_home:.3f}  (elo {r.p_home_elo:.3f})  "
-                  f"value: {r.home} >= {min_odds(r.p_home):.2f} / {r.away} >= {min_odds(1-r.p_home):.2f}")
+            vals = (f"value: {r.home} >= {min_odds(r.p_home):.2f} / {r.away} >= {min_odds(1-r.p_home):.2f}"
+                    if gate_open else "CALIBRATION: predictions only")
+            print(f"{r.away:>4} @ {r.home:<4}  p(home)={r.p_home:.3f}  (elo {r.p_home_elo:.3f})  | {vals}")
     else:
         print(f"no games on {datestr}")
 
@@ -184,7 +195,12 @@ def run(datestr):
 
     tg_token, tg_chat = os.environ.get("TG_TOKEN"), os.environ.get("TG_CHAT")
     if tg_token and tg_chat and (slate or alerts):
-        txt = "\n".join(f"{r.away} @ {r.home}: {r.p_home:.3f} | {r.home} >= {min_odds(r.p_home):.2f} / {r.away} >= {min_odds(1-r.p_home):.2f}" for _, r in board.iterrows()) if slate else "no games today"
+        if slate and gate_open:
+            txt = "\n".join(f"{r.away} @ {r.home}: {r.p_home:.3f} | {r.home} >= {min_odds(r.p_home):.2f} / {r.away} >= {min_odds(1-r.p_home):.2f}" for _, r in board.iterrows())
+        elif slate:
+            txt = "\n".join(f"{r.away} @ {r.home}: {r.p_home:.3f} | CALIBRATION, no betting" for _, r in board.iterrows())
+        else:
+            txt = "no games today"
         if alerts:
             txt += "\n\u26a0 TRIPWIRE: " + ", ".join(alerts) + " below base rate, stop betting this board"
         requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",

@@ -193,6 +193,8 @@ def build_features(g, tbox, pbox, cfg):
             row.update({f"{side}_availshare": act_minshare, f"{side}_availstr": avail_strength,
                         f"{side}_missing": miss})
         feats.append(row)
+        if pd.isna(r.home_win):
+            continue
 
         # ---- post-game state updates ----
         hb, ab = tbox.get((gid, h)), tbox.get((gid, a))
