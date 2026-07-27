@@ -1,8 +1,10 @@
 name: mbm-wnba-daily
 on:
   schedule:
-    - cron: "0 15 * * *"
-    - cron: "30 21 * * *"
+    - cron: "0 15 * 3-10 *"       # 9:00am MDT
+    - cron: "0 16 * 1-2,11-12 *"  # 9:00am MST
+    - cron: "0 22 * 3-10 *"       # 4:00pm MDT
+    - cron: "0 23 * 1-2,11-12 *"  # 4:00pm MST
   workflow_dispatch: {}
 permissions:
   contents: write
