@@ -12,6 +12,8 @@ from sklearn.metrics import log_loss, brier_score_loss
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import tg_delta
+import board_format as BF
 os.environ.setdefault("MBM_DATA", os.path.join(HERE, "data"))
 import features as F
 F.DATA = os.environ["MBM_DATA"]
@@ -24,8 +26,7 @@ SPEC = json.load(open(os.path.join(HERE, "model_spec.json")))
 CFG, C, A0 = SPEC["cfg"], SPEC["C"], SPEC["a0"]
 TRAIN_LO, TRAIN_HI = 2019, 2025  # frozen through end of 2025; rest of 2026 = forward test
 
-MIN_EDGE = 0.05
-CAL_MIN_GP = 8   # value lines unlock when every team has this many GP  # required margin: threshold odds pay 5% above model breakeven
+MIN_EDGE = 0.05  # required margin: threshold odds pay 5% above model breakeven
 
 def min_odds(p):
     import math
@@ -138,14 +139,6 @@ def run(datestr):
         lo = np.log(np.clip(p, 1e-6, 1 - 1e-6) / (1 - np.clip(p, 1e-6, 1 - 1e-6)))
         return 1 / (1 + np.exp(-alpha * lo))
 
-    yr = gdate.year
-    season_g = g[g.season == yr]
-    teams_all = set(season_g.home_abbreviation) | set(season_g.away_abbreviation)
-    done = season_g[season_g.home_win.notna()]
-    counts = pd.concat([done.home_abbreviation, done.away_abbreviation]).value_counts()
-    gate_open = (len(teams_all) > 0 and len(counts) >= len(teams_all)
-                 and (counts.min() if len(counts) else 0) >= CAL_MIN_GP)
-
     alerts = []
     os.makedirs(LOGS, exist_ok=True)
     pred_path = os.path.join(LOGS, "predictions.csv")
@@ -161,12 +154,10 @@ def run(datestr):
         board.insert(0, "date", datestr)
         board["model"] = "v1.1"
         log = pd.concat([log[~log.game_id.isin(board.game_id)], board], ignore_index=True)
-        gate_txt = "" if gate_open else f"  [CALIBRATION: no betting until every team has {CAL_MIN_GP} GP]"
-        print(f"\n=== MBM WNBA board {datestr} ==={gate_txt}")
+        print(f"\n=== MBM WNBA board {datestr} ===")
         for _, r in board.iterrows():
-            vals = (f"value: {r.home} >= {min_odds(r.p_home):.2f} / {r.away} >= {min_odds(1-r.p_home):.2f}"
-                    if gate_open else "CALIBRATION: predictions only")
-            print(f"{r.away:>4} @ {r.home:<4}  p(home)={r.p_home:.3f}  (elo {r.p_home_elo:.3f})  | {vals}")
+            print(f"{r.away:>4} @ {r.home:<4}  p(home)={r.p_home:.3f}  (elo {r.p_home_elo:.3f})  "
+                  f"value: {r.home} >= {min_odds(r.p_home):.2f} / {r.away} >= {min_odds(1-r.p_home):.2f}")
     else:
         print(f"no games on {datestr}")
 
@@ -194,17 +185,31 @@ def run(datestr):
         graded.to_csv(os.path.join(LOGS, "graded.csv"), index=False)
 
     tg_token, tg_chat = os.environ.get("TG_TOKEN"), os.environ.get("TG_CHAT")
-    if tg_token and tg_chat and (slate or alerts):
-        if slate and gate_open:
-            txt = "\n".join(f"{r.away} @ {r.home}: {r.p_home:.3f} | {r.home} >= {min_odds(r.p_home):.2f} / {r.away} >= {min_odds(1-r.p_home):.2f}" for _, r in board.iterrows())
-        elif slate:
-            txt = "\n".join(f"{r.away} @ {r.home}: {r.p_home:.3f} | CALIBRATION, no betting" for _, r in board.iterrows())
-        else:
-            txt = "no games today"
-        if alerts:
-            txt += "\n\u26a0 TRIPWIRE: " + ", ".join(alerts) + " below base rate, stop betting this board"
-        requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
-                      data={"chat_id": tg_chat, "text": f"MBM WNBA {datestr}\n{txt}"}, timeout=20)
+    if tg_token and tg_chat:
+        push, skipped = {}, 0
+        if slate:
+            rows = [(datestr[:4] + "-" + datestr[4:6] + "-" + datestr[6:],
+                     f"{r.away} @ {r.home}", r.home if r.p_home >= .5 else r.away,
+                     max(r.p_home, 1 - r.p_home), r.game_id) for _, r in board.iterrows()]
+            wg = max([len(x[1]) for x in rows] + [10]); wp = max([len(x[2]) for x in rows] + [8])
+            for d_, gm, pk, q, gid in rows:
+                if BF.min_odds(q) < BF.PRICE_FLOOR:
+                    skipped += 1
+                    continue
+                push[gid] = {"line": BF.line(d_, gm, pk, q, w_game=wg, w_pick=wp),
+                             "min_odds": BF.min_odds(q)}
+        mode, lines = tg_delta.gate(LOGS, datestr, push)
+        if lines or alerts:
+            txt = "\n".join(lines) if lines else "no price changes since the last push"
+            if skipped:
+                txt += f"\n({skipped} game{'s' if skipped != 1 else ''} skipped, "\
+                       f"price floor {BF.PRICE_FLOOR:.2f} / {BF.american(BF.PRICE_FLOOR)})"
+            if mode == "delta" and lines:
+                txt = "changes since the last push:\n" + txt
+            if alerts:
+                txt += "\n\u26a0 TRIPWIRE: " + ", ".join(alerts) + " below base rate, stop betting this board"
+            requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                          data={"chat_id": tg_chat, "text": f"MBM WNBA {datestr}\n{txt}"}, timeout=20)
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
