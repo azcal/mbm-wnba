@@ -14,6 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import tg_delta
 import board_format as BF
+import notify
 os.environ.setdefault("MBM_DATA", os.path.join(HERE, "data"))
 import features as F
 F.DATA = os.environ["MBM_DATA"]
@@ -200,16 +201,18 @@ def run(datestr):
                              "min_odds": BF.min_odds(q)}
         mode, lines = tg_delta.gate(LOGS, datestr, push)
         if lines or alerts:
-            txt = "\n".join(lines) if lines else "no price changes since the last push"
-            if skipped:
-                txt += f"\n({skipped} game{'s' if skipped != 1 else ''} skipped, "\
-                       f"price floor {BF.PRICE_FLOOR:.2f} / {BF.american(BF.PRICE_FLOOR)})"
-            if mode == "delta" and lines:
-                txt = "changes since the last push:\n" + txt
+            body = list(lines) if lines else ["no price changes since the last push"]
+            foot = (f"{skipped} game{'s' if skipped != 1 else ''} skipped, "
+                    f"price floor {BF.PRICE_FLOOR:.2f} / {BF.american(BF.PRICE_FLOOR)}")\
+                   if skipped else None
+            title = "MBM WNBA" + (" · changes since the last push"
+                                     if mode == "delta" and lines else "")
+            colour = notify.GREEN
             if alerts:
-                txt += "\n\u26a0 TRIPWIRE: " + ", ".join(alerts) + " below base rate, stop betting this board"
-            requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
-                          data={"chat_id": tg_chat, "text": f"MBM WNBA {datestr}\n{txt}"}, timeout=20)
+                body = body + ["", "TRIPWIRE: " + ", ".join(alerts)
+                               + " below base rate, stop betting this board"]
+                colour = notify.RED
+            notify.send(title, body, foot, colour)
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
