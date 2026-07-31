@@ -197,8 +197,11 @@ def run(datestr):
                 if BF.min_odds(q) < BF.PRICE_FLOOR:
                     skipped += 1
                     continue
-                push[gid] = {"line": BF.line(d_, gm, pk, q, w_game=wg, w_pick=wp),
-                             "min_odds": BF.min_odds(q)}
+                ln = BF.line(d_, gm, pk, q, w_game=wg, w_pick=wp)
+                note = BF.live_note("WNBA", q)
+                if note:
+                    ln = "\n".join([ln] + note)
+                push[gid] = {"line": ln, "min_odds": BF.min_odds(q)}
         mode, lines = tg_delta.gate(LOGS, datestr, push)
         if lines or alerts:
             body = list(lines) if lines else ["no price changes since the last push"]
