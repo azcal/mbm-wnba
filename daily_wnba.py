@@ -155,10 +155,26 @@ def run(datestr):
         board.insert(0, "date", datestr)
         board["model"] = "v1.1"
         log = pd.concat([log[~log.game_id.isin(board.game_id)], board], ignore_index=True)
+        push, skipped = {}, 0
+        rows = [(datestr[:4] + "-" + datestr[4:6] + "-" + datestr[6:],
+                 f"{r.away} @ {r.home}", r.home if r.p_home >= .5 else r.away,
+                 max(r.p_home, 1 - r.p_home), r.game_id) for _, r in board.iterrows()]
+        wg = max([len(x[1]) for x in rows] + [10]); wp = max([len(x[2]) for x in rows] + [8])
+        for d_, gm, pk, q, gid in rows:
+            if BF.min_odds(q) < BF.PRICE_FLOOR:
+                skipped += 1
+                continue
+            ln = BF.line(d_, gm, pk, q, w_game=wg, w_pick=wp)
+            note = BF.live_note("WNBA", q)
+            if note:
+                ln = "\n".join([ln] + note)
+            push[gid] = {"line": ln, "min_odds": BF.min_odds(q)}
         print(f"\n=== MBM WNBA board {datestr} ===")
-        for _, r in board.iterrows():
-            print(f"{r.away:>4} @ {r.home:<4}  p(home)={r.p_home:.3f}  (elo {r.p_home_elo:.3f})  "
-                  f"value: {r.home} >= {min_odds(r.p_home):.2f} / {r.away} >= {min_odds(1-r.p_home):.2f}")
+        for v in push.values():
+            print(v["line"])
+        if skipped:
+            print(f"({skipped} game{'s' if skipped != 1 else ''} skipped, "
+                  f"price floor {BF.PRICE_FLOOR:.2f} / {BF.american(BF.PRICE_FLOOR)})")
     else:
         print(f"no games on {datestr}")
 
@@ -187,21 +203,6 @@ def run(datestr):
 
     tg_token, tg_chat = os.environ.get("TG_TOKEN"), os.environ.get("TG_CHAT")
     if tg_token and tg_chat:
-        push, skipped = {}, 0
-        if slate:
-            rows = [(datestr[:4] + "-" + datestr[4:6] + "-" + datestr[6:],
-                     f"{r.away} @ {r.home}", r.home if r.p_home >= .5 else r.away,
-                     max(r.p_home, 1 - r.p_home), r.game_id) for _, r in board.iterrows()]
-            wg = max([len(x[1]) for x in rows] + [10]); wp = max([len(x[2]) for x in rows] + [8])
-            for d_, gm, pk, q, gid in rows:
-                if BF.min_odds(q) < BF.PRICE_FLOOR:
-                    skipped += 1
-                    continue
-                ln = BF.line(d_, gm, pk, q, w_game=wg, w_pick=wp)
-                note = BF.live_note("WNBA", q)
-                if note:
-                    ln = "\n".join([ln] + note)
-                push[gid] = {"line": ln, "min_odds": BF.min_odds(q)}
         mode, lines = tg_delta.gate(LOGS, datestr, push)
         if lines or alerts:
             body = list(lines) if lines else ["no price changes since the last push"]
