@@ -1,5 +1,5 @@
 """
-Board delivery. Discord if a webhook is configured, Telegram if a token is, both if both.
+Board delivery to Discord.
 
 Rendering notes, because the obvious approach breaks.
 
@@ -30,9 +30,8 @@ Set in the workflow:
     DISCORD_WEBHOOK   channel webhook URL
     DISCORD_MENTION   optional. "@everyone", "@here", or "<@&ROLE_ID>" for a role.
                       Unset means no ping.
-    TG_TOKEN, TG_CHAT the existing pair
 
-Neither webhook nor token means nothing is sent and the board still runs and grades.
+No webhook means nothing is sent, and the board still runs and grades.
 """
 import os, re, requests
 
@@ -41,7 +40,6 @@ GREY = 0x8A8A8A       # calibration window, predictions only
 RED = 0xC0392B        # tripwire
 
 DISCORD_LIMIT = 3800  # embed description cap is 4096; leave room
-TG_LIMIT = 3900       # message cap is 4096
 
 # "2026-07-31  SEA @ ATL   ATL   find 1.32 / -312 or better"
 BOARD = re.compile(r"^(\d{4}-\d{2}-\d{2})\s+(.+?)\s{2,}(\S.*?)\s+find\s+(.+?)\s+or better\s*$")
@@ -154,32 +152,13 @@ def _discord(url, title, lines, footer, color):
     print(f"discord: posted {len(body)} lines in {len(parts)} embed(s)")
 
 
-def _telegram(token, chat, title, lines, footer):
-    body = [title] + _flatten(lines) + ([footer] if footer else [])
-    for part in _chunks(body, TG_LIMIT):
-        try:
-            r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
-                              data={"chat_id": chat, "text": "\n".join(part)}, timeout=20)
-            if r.status_code >= 300:
-                print(f"telegram post failed: HTTP {r.status_code} {r.text[:200]}")
-                return
-        except Exception as ex:
-            print(f"telegram post error: {type(ex).__name__}: {ex}")
-            return
-    print("telegram: posted")
-
-
 def send(title, lines, footer=None, color=GREEN):
     """Deliver a board. `lines` may contain multi-line entries; they get split."""
     if not lines and not footer:
         print("notify: nothing to send")
         return
     url = os.environ.get("DISCORD_WEBHOOK")
-    tok, chat = os.environ.get("TG_TOKEN"), os.environ.get("TG_CHAT")
-    if not url and not (tok and chat):
+    if not url:
         print("no notifier configured, board not sent")
         return
-    if url:
-        _discord(url, title, lines, footer, color)
-    if tok and chat:
-        _telegram(tok, chat, title, lines, footer)
+    _discord(url, title, lines, footer, color)
