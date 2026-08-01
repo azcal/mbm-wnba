@@ -8,7 +8,12 @@ on:
     - cron: "0 16 * 1-2,11-12 *"  # 9:00am MST
     - cron: "0 22 * 3-10 *"       # 4:00pm MDT
     - cron: "0 23 * 1-2,11-12 *"  # 4:00pm MST
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force_push:
+        description: "Post the full board even if nothing repriced since the last run"
+        type: boolean
+        default: true
 permissions:
   contents: write
 jobs:
@@ -28,6 +33,13 @@ jobs:
           # The quotes matter. "@" starts a reserved indicator in YAML, so a bare
           # @everyone here is a parse error and GitHub hides the whole workflow.
           DISCORD_MENTION: "@everyone"
+          # Manual runs post the whole board. Scheduled runs do not, so the 9am cron is
+          # the first-of-day full push and the 4pm cron sends only what repriced.
+          #
+          # The chain short-circuits on the event name, so a scheduled run never reads the
+          # inputs context at all. False yields an empty string, and tg_delta only treats
+          # "1", "true" or "yes" as set, so an empty value is the same as unset.
+          FORCE_PUSH: ${{ github.event_name == 'workflow_dispatch' && inputs.force_push && '1' || '' }}
 
       # Two things the original commit step got wrong.
       #
