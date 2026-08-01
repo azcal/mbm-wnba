@@ -11,7 +11,7 @@ import math
 
 # Bumped whenever this file changes. Every runner asserts on it at import, so a repo
 # holding an old copy fails in the workflow's import guard instead of rendering wrong.
-VERSION = "2026-08-01"
+VERSION = "2026-08-02"
 
 MIN_EDGE = 0.05
 
@@ -108,15 +108,16 @@ def build_board(rows, floor=PRICE_FLOOR, edge=MIN_EDGE):
 # ---------------------------------------------------------------- combinations
 def mma_board(p_a_ko, p_a_sub, p_a_dec, p_b_ko, p_b_sub, p_b_dec, a, b,
               floor=PRICE_FLOOR, edge=MIN_EDGE):
-    """Three lines for a fight: the moneyline lean, the distance lean, and the two combined.
+    """Two lines for a fight: the moneyline lean and the distance lean.
 
-    Decision is the distance. KO/TKO and submission are both finishes. Books post the
-    distance leg as a yes/no market and will parlay it with the moneyline in one ticket,
-    which is the number the third line prices.
+    Decision is the distance. KO/TKO and submission are both finishes, so whichever side
+    of that is likelier becomes the second line, quoted as the yes/no market books post
+    alongside the winner.
 
-    The combined leg is where a book pricing legs independently goes wrong: a fighter who
-    wins tends to win the way he always wins, so the moneyline and the distance move
-    together. The bracket shows what independence implies so the gap is visible.
+    The two legs were previously also offered combined, as the same-game parlay a book
+    posts on one ticket, with a bracket showing what independent pricing implied. That
+    row is gone. It was the only place a bracket appeared, so `ROW`'s optional note group
+    in notify.py now has no producer; it is left in place for other boards to use.
     """
     pA = p_a_ko + p_a_sub + p_a_dec
     pB = p_b_ko + p_b_sub + p_b_dec
@@ -124,23 +125,14 @@ def mma_board(p_a_ko, p_a_sub, p_a_dec, p_b_ko, p_b_sub, p_b_dec, a, b,
     fin = p_a_ko + p_a_sub + p_b_ko + p_b_sub
 
     win_name, win_p = (a, pA) if pA >= pB else (b, pB)
-    if dist >= fin:
-        way_name, way_p = "goes the distance", dist
-        both = p_a_dec if win_name == a else p_b_dec
-    else:
-        way_name, way_p = "ends inside", fin
-        both = (p_a_ko + p_a_sub) if win_name == a else (p_b_ko + p_b_sub)
-    naive = win_p * way_p
+    way_name, way_p = ("goes the distance", dist) if dist >= fin else ("ends inside", fin)
 
-    rows = [(win_name, win_p, None), (way_name, way_p, None), ("both", both, naive)]
+    rows = [(win_name, win_p), (way_name, way_p)]
     out, w = [], max(len(r[0]) for r in rows)
-    for label, p, nv in rows:
+    for label, p in rows:
         if min_odds(p, edge) < floor:
             continue
-        ln = f"  {label:<{w}} {p:>5.1%}  find {price(p, edge)} or better"
-        if nv and abs(p / nv - 1) >= 0.015:
-            ln += f"   [indep {1/nv:.2f}, {p/nv - 1:+.0%}]"
-        out.append(ln)
+        out.append(f"  {label:<{w}} {p:>5.1%}  find {price(p, edge)} or better")
     return out
 
 

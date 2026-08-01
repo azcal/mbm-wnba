@@ -25,7 +25,7 @@ Drop this file next to the runner in each repo. No dependencies beyond the stand
 """
 import json, os
 
-VERSION = "2026-08-01"
+VERSION = "2026-08-02"
 
 CACHE_NAME = "push_cache.json"
 DEFAULT_TOL = 0.02          # required-odds move that counts as news

@@ -20,7 +20,7 @@ import notify
 # halfway through a run. This turns it into a named failure in the workflow's import
 # guard, which takes seconds. Sits above the features import so it fires before anything
 # heavy loads. Bump all four together when a shared file changes.
-SHARED_VERSION = "2026-08-01"
+SHARED_VERSION = "2026-08-02"
 for _mod in (BF, notify, tg_delta):
     _have = getattr(_mod, "VERSION", None)
     if _have != SHARED_VERSION:
