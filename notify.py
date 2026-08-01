@@ -37,9 +37,14 @@ def _discord(url, title, lines, footer, color):
     formatted_lines = []
     for line in lines:
         line_stripped = line.strip()
+        
+        # Protect against completely blank lines causing empty Markdown blocks
+        if not line_stripped:
+            continue
+            
         # If the line contains betting odds, format it as an italicized blockquote
         if line_stripped.startswith("find"):
-            formatted_lines.append(f"> *{line_stripped}*\n")
+            formatted_lines.append(f"> *{line_stripped}*") 
         # Otherwise, treat it as a matchup. Use inline code to preserve your column spacing!
         else:
             formatted_lines.append(f"`{line_stripped}`")
@@ -47,15 +52,20 @@ def _discord(url, title, lines, footer, color):
     # Your existing _chunks function handles this perfectly
     for i, part in enumerate(_chunks(formatted_lines, DISCORD_LIMIT)):
         embed = {
-            "title": title if i == 0 else f"{title} (cont.)",
-            "description": "\n".join(part), # Replaced the rigid code fence here
+            "description": "\n".join(part),
             "color": color
         }
+        
+        # Safely handle the title so we don't accidentally pass a null value
+        if title:
+            embed["title"] = title if i == 0 else f"{title} (cont.)"
+
         if footer and i == len(_chunks(formatted_lines, DISCORD_LIMIT)) - 1:
             embed["footer"] = {"text": footer}
             
         r = requests.post(url, json={"embeds": [embed]}, timeout=20)
         if r.status_code >= 300:
+            # If this triggers, it is hidden in the GitHub Actions logs!
             print(f"discord post failed: {r.status_code} {r.text[:120]}")
 
 
