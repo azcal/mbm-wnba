@@ -24,22 +24,45 @@ jobs:
       - run: python -c "import daily_wnba"
       - run: python daily_wnba.py
         env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT: ${{ secrets.TG_CHAT }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           # The quotes matter. "@" starts a reserved indicator in YAML, so a bare
           # @everyone here is a parse error and GitHub hides the whole workflow.
           DISCORD_MENTION: "@everyone"
+
+      # Two things the original commit step got wrong.
+      #
+      # It failed outright when the remote had moved since checkout, which happens whenever
+      # a deploy overlaps a scheduled run. This version keeps a copy of what the run
+      # produced, resets onto the remote, restores the copy and retries.
+      #
+      # It also failed when a path was in .gitignore, because `git add` returns non-zero on
+      # an ignored path and `set -e` killed the step. This repo ignores data/, so the
+      # wehoop parquets are re-fetched every run and only logs/ is tracked. logs/ is the
+      # part that matters: predictions.csv and push_cache.json live there, and without them
+      # every run would push the full board as if it were the first of the day.
       - name: commit state
         run: |
           set -e
-          mkdir -p logs data && date > logs/last_run.txt
+          mkdir -p logs && date > logs/last_run.txt
           git config user.name mbm-bot
           git config user.email bot@mbm
+          TRACK=""
+          for p in data logs; do
+            [ -d "$p" ] || continue
+            if git check-ignore -q "$p"; then
+              echo "$p is gitignored, not committing it"
+            else
+              TRACK="$TRACK $p"
+            fi
+          done
+          if [ -z "$TRACK" ]; then
+            echo "nothing tracked to commit"
+            exit 0
+          fi
           TMP=$(mktemp -d)
-          cp -r data logs "$TMP"/ 2>/dev/null || true
+          cp -r $TRACK "$TMP"/ 2>/dev/null || true
           for i in 1 2 3 4 5; do
-            git add data/ logs/
+            git add $TRACK
             if git diff --cached --quiet; then
               echo "nothing to commit"
               exit 0
@@ -52,7 +75,7 @@ jobs:
             echo "remote moved, re-basing this run's output onto it (attempt $i)"
             git fetch -q origin
             git reset -q --hard origin/${GITHUB_REF_NAME}
-            cp -r "$TMP"/data "$TMP"/logs . 2>/dev/null || true
+            for p in $TRACK; do cp -r "$TMP/$p" . 2>/dev/null || true; done
             sleep $((i * 3))
           done
           echo "could not push after 5 attempts"
