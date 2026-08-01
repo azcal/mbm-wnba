@@ -11,17 +11,28 @@ entry is split into real lines first.
 
 **Alignment needs monospace, structure needs markdown.** One big code fence keeps the columns
 lined up and reads badly on a phone, where it will not wrap. So the price sits in a short
-inline code span, the pick and matchup are bold, and live-entry notes use subtext. Short
+inline code span, the game and the pick are bold, and live-entry notes use subtext. Short
 lines, no horizontal scroll.
+
+**Game first, then the instruction.** A row reads as the fixture, then what to do about it.
+Leading with the pick puts the team name twice in two lines and reads backwards to anyone who
+is not already holding the context.
 
 Anything unrecognised passes through rather than being dropped, so a format change degrades
 instead of silently vanishing.
 
+**Mentions only work in `content`.** Discord does not parse pings inside an embed, so an
+`@everyone` in the description renders as plain text and notifies nobody. It goes in the
+top-level `content` field with an explicit `allowed_mentions`, and only on the first embed of
+a board so a long slate does not ping three times.
+
 Set in the workflow:
     DISCORD_WEBHOOK   channel webhook URL
+    DISCORD_MENTION   optional. "@everyone", "@here", or "<@&ROLE_ID>" for a role.
+                      Unset means no ping.
     TG_TOKEN, TG_CHAT the existing pair
 
-Neither set means nothing is sent and the board still runs and grades.
+Neither webhook nor token means nothing is sent and the board still runs and grades.
 """
 import os, re, requests
 
@@ -41,7 +52,8 @@ HEADER = re.compile(r"^(\d{4}-\d{2}-\d{2})\s{2,}(.+)$")
 #   "  both           34.3%  find 3.06 / +206 or better   [indep 3.16, +8%]"
 ROW = re.compile(r"^\s+(.+?)\s+([\d.]+%)\s+find\s+(.+?)\s+or better\s*(\[[^\]]*\])?\s*$")
 # "      or live 1.69-1.91 (-145 to -110) after Q1 if down 5-9"
-LIVE = re.compile(r"^\s+or (live .+)$")
+LIVE = re.compile(r"^\s+or live\s+([\d.]+)-([\d.]+)\s+\((.+?)\)\s+after\s+(\S+)\s+if\s+(.+)$")
+LIVE_ANY = re.compile(r"^\s+or (live .+)$")
 
 
 def _flatten(lines):
@@ -63,8 +75,11 @@ def _render(lines):
             _, game, pick, price = m.groups()
             if out and out[-1] != "":
                 out.append("")
-            out.append(f"**{pick.strip()}**  ·  {game.strip()}")
-            out.append(f"`{price.strip()}` or better")
+            out.append(f"**{game.strip()}**")
+            sides = [x.strip() for x in pick.split(" / ")] if " / " in pick else [pick.strip()]
+            for j, side in enumerate(sides):
+                lead = "Back" if j == 0 else "Or"
+                out.append(f"{lead} **{side}** at `{price.strip()}` or better")
             continue
         m = HEADER.match(ln)
         if m:
@@ -79,6 +94,11 @@ def _render(lines):
             out.append(f"{label.strip()}  **{pct}**  ·  `{price}` or better{tail}")
             continue
         m = LIVE.match(ln)
+        if m:
+            lo, hi, am, cp, cond = m.groups()
+            out.append(f"-# If {cond} after {cp}, back live at `{lo}` to `{hi}` ({am})")
+            continue
+        m = LIVE_ANY.match(ln)
         if m:
             out.append(f"-# or {m.group(1)}")
             continue
@@ -117,8 +137,13 @@ def _discord(url, title, lines, footer, color):
             embed["title"] = title if i == 0 else f"{title} (cont.)"
         if footer and i == len(parts) - 1:
             embed["footer"] = {"text": footer}
+        payload = {"embeds": [embed]}
+        mention = os.environ.get("DISCORD_MENTION", "").strip()
+        if mention and i == 0:
+            payload["content"] = mention
+            payload["allowed_mentions"] = {"parse": ["everyone", "roles", "users"]}
         try:
-            r = requests.post(url, json={"embeds": [embed]}, timeout=20)
+            r = requests.post(url, json=payload, timeout=20)
         except Exception as ex:
             print(f"discord post error: {type(ex).__name__}: {ex}")
             return
