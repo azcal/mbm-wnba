@@ -15,6 +15,19 @@ sys.path.insert(0, HERE)
 import tg_delta
 import board_format as BF
 import notify
+
+# A stale copy of a shared file shows up as a wrong-looking board or an AttributeError
+# halfway through a run. This turns it into a named failure in the workflow's import
+# guard, which takes seconds. Sits above the features import so it fires before anything
+# heavy loads. Bump all four together when a shared file changes.
+SHARED_VERSION = "2026-08-01"
+for _mod in (BF, notify, tg_delta):
+    _have = getattr(_mod, "VERSION", None)
+    if _have != SHARED_VERSION:
+        raise ImportError(
+            f"{_mod.__name__}.py is version {_have!r}, this runner needs "
+            f"{SHARED_VERSION!r}. Copy the current shared files into this repo.")
+
 os.environ.setdefault("MBM_DATA", os.path.join(HERE, "data"))
 import features as F
 F.DATA = os.environ["MBM_DATA"]
