@@ -35,7 +35,7 @@ No webhook means nothing is sent, and the board still runs and grades.
 """
 import os, re, requests
 
-VERSION = "2026-08-02"
+VERSION = "2026-08-03"
 
 GREEN = 0x2E8B57      # normal board
 GREY = 0x8A8A8A       # calibration window, predictions only

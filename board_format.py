@@ -11,7 +11,7 @@ import math
 
 # Bumped whenever this file changes. Every runner asserts on it at import, so a repo
 # holding an old copy fails in the workflow's import guard instead of rendering wrong.
-VERSION = "2026-08-02"
+VERSION = "2026-08-03"
 
 MIN_EDGE = 0.05
 
@@ -45,7 +45,11 @@ def price(p, edge=MIN_EDGE):
 def line(date, game, pick, p, edge=MIN_EDGE, w_game=26, w_pick=16):
     """A single board row. `pick` is the outcome in the reader's language: a team for a
     moneyline, a team plus handicap for a spread, a fighter for MMA."""
-    return (f"{date}  {game:<{w_game}} {pick:<{w_pick}} "
+    # Two spaces between fields, not one. The column padding is sized to the widest
+    # entry on the slate, so that row gets zero padding; with single-space separators it
+    # ends up one space from the next field and notify.BOARD, which needs two or more,
+    # fails to match. The row then falls through and renders as an unstyled run-on line.
+    return (f"{date}  {game:<{w_game}}  {pick:<{w_pick}}  "
             f"find {price(p, edge)} or better")
 
 
