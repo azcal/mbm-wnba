@@ -1,21 +1,35 @@
 """
-Telegram push gate, shared across MBM boards.
+Push gate, shared across MBM boards.
 
 First run of a given day sends the whole board and caches it. Every later run that day
-compares against the cache and sends only what moved, so an afternoon refresh is silent
-unless something actually repriced.
+compares against the cache and sends only the entries that moved, each carrying a marker
+saying what moved, so an afternoon refresh is silent unless something actually repriced.
 
 The models take no odds input, so a book's line moving is invisible to them. What is
 visible is the model's own number changing: a scratched starter, a confirmed goalie, a
-posted lineup, an injury-report update. Those move the minimum odds worth demanding, and
-that is what this sends.
+posted lineup, an injury-report update, a replaced opponent. Those move the minimum odds
+worth demanding, and that is what this sends.
+
+Two things count as a change:
+
+  price    the required minimum odds moved by at least `tol`
+  match    the matchup itself is different under the same id, which is how a late
+           opponent replacement shows up. Pass an optional "match" field to enable it.
+           A board that omits the field keeps the old price-only behaviour.
+
+Markers go on their own indented line rather than on the end of a board row. Appending
+one to a row puts a second bracket after "or better", which the notify regexes reject,
+and the whole row then renders as unformatted text.
 
 Drop this file next to the runner in each repo. No dependencies beyond the standard library.
 """
 import json, os
 
+VERSION = "2026-08-01"
+
 CACHE_NAME = "push_cache.json"
 DEFAULT_TOL = 0.02          # required-odds move that counts as news
+MARK_INDENT = "      "      # matches the live-note indent, so notify reads it as subtext
 
 
 def _load(path):
@@ -26,11 +40,14 @@ def _load(path):
         return {}
 
 
-def gate(logs_dir, datestr, board, tol=DEFAULT_TOL, cache_name=CACHE_NAME):
+def gate(logs_dir, datestr, board, tol=DEFAULT_TOL, cache_name=CACHE_NAME,
+         indent=MARK_INDENT):
     """Decide what to push.
 
-    board: {key: {"line": <str to send>, "min_odds": <float>}}
-           key must be stable within a day, so use the game id, not a matchup string.
+    board: {key: {"line": <str to send>, "min_odds": <float>, "match": <optional str>}}
+           key must be stable within a day, so use the game or fight id, not a matchup
+           string. "match" is the matchup in reader-facing form; supply it and a swapped
+           opponent under the same id is reported even when the price barely moves.
 
     Returns (mode, lines) where mode is "full" or "delta" and lines is what to send.
     An empty list means send nothing at all.
@@ -56,14 +73,20 @@ def gate(logs_dir, datestr, board, tol=DEFAULT_TOL, cache_name=CACHE_NAME):
         for k, v in board.items():
             o = old.get(str(k))
             if o is None:
-                lines.append(f"{v['line']}   [new]")
+                lines.append(f"{v['line']}\n{indent}new: not on the last board")
                 continue
+            why = []
+            was_match = o.get("match")
+            if v.get("match") and was_match and was_match != v["match"]:
+                why.append(f"now {v['match']}, was {was_match}")
             try:
                 moved = abs(float(v["min_odds"]) - float(o.get("min_odds")))
             except (TypeError, ValueError):
-                continue
+                moved = 0.0
             if moved >= tol:
-                lines.append(f"{v['line']}   [was {float(o['min_odds']):.2f}]")
+                why.append(f"price was {float(o['min_odds']):.2f}")
+            if why:
+                lines.append(f"{v['line']}\n{indent}changed: " + ", ".join(why))
 
     os.makedirs(logs_dir, exist_ok=True)
     with open(path, "w") as fh:

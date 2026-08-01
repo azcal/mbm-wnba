@@ -35,6 +35,8 @@ No webhook means nothing is sent, and the board still runs and grades.
 """
 import os, re, requests
 
+VERSION = "2026-08-01"
+
 GREEN = 0x2E8B57      # normal board
 GREY = 0x8A8A8A       # calibration window, predictions only
 RED = 0xC0392B        # tripwire
@@ -52,6 +54,11 @@ ROW = re.compile(r"^\s+(.+?)\s+([\d.]+%)\s+find\s+(.+?)\s+or better\s*(\[[^\]]*\
 # "      or live 1.69-1.91 (-145 to -110) after Q1 if down 5-9"
 LIVE = re.compile(r"^\s+or live\s+([\d.]+)-([\d.]+)\s+\((.+?)\)\s+after\s+(\S+)\s+if\s+(.+)$")
 LIVE_ANY = re.compile(r"^\s+or (live .+)$")
+# "      changed: price was 1.55"  /  "      new: not on the last board"
+# The delta gate emits these on their own line. Appending a marker to the end of a board
+# row instead would put a second bracket after "or better", which BOARD and ROW both
+# reject, and the row would fall through to the raw handler.
+CHANGE = re.compile(r"^\s+(changed|new):\s*(.+)$")
 
 
 def _flatten(lines):
@@ -99,6 +106,10 @@ def _render(lines):
         m = LIVE_ANY.match(ln)
         if m:
             out.append(f"-# or {m.group(1)}")
+            continue
+        m = CHANGE.match(ln)
+        if m:
+            out.append(f"-# {m.group(1)}: {m.group(2)}")
             continue
         if ln.strip().startswith("TRIPWIRE"):
             out.append(f"**{ln.strip()}**")

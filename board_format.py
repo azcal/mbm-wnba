@@ -1,5 +1,5 @@
 """
-One board line, one format, every sport, Telegram and dashboard.
+One board line, one format, every sport, Discord and dashboard.
 
     2026-09-14  KC @ LAC        LAC +2.5        find 1.91 / -110 or better
 
@@ -8,6 +8,10 @@ is the same min_odds rule every board already uses, shown in decimal and America
 be compared to whatever a book displays without conversion.
 """
 import math
+
+# Bumped whenever this file changes. Every runner asserts on it at import, so a repo
+# holding an old copy fails in the workflow's import guard instead of rendering wrong.
+VERSION = "2026-08-01"
 
 MIN_EDGE = 0.05
 
@@ -74,7 +78,7 @@ def spread_pick(home, away, line_margin):
 
 
 def widths(games, picks):
-    """Column widths that fit the slate, so a board never ragged-wraps in Telegram."""
+    """Column widths that fit the slate, so a board never ragged-wraps."""
     return (max([len(g) for g in games] + [10]),
             max([len(p) for p in picks] + [8]))
 
