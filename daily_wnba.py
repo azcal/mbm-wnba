@@ -146,6 +146,10 @@ def run(datestr):
     log = pd.read_csv(pred_path, dtype={"game_id": str}) if os.path.exists(pred_path) else \
         pd.DataFrame(columns=["date", "game_id", "home", "away", "p_home", "p_home_elo", "model"])
 
+    # Defined before the branch. On a day with no games the delivery block below still
+    # runs, and an undefined `push` would raise NameError after the model has already
+    # graded everything. This was hidden while delivery was gated behind the TG secrets.
+    push, skipped = {}, 0
     if slate:
         rows = df[df.game_id.isin([s["game_id"] for s in slate])].copy()
         rows["p_home"] = predict(rows)
@@ -155,7 +159,6 @@ def run(datestr):
         board.insert(0, "date", datestr)
         board["model"] = "v1.1"
         log = pd.concat([log[~log.game_id.isin(board.game_id)], board], ignore_index=True)
-        push, skipped = {}, 0
         rows = [(datestr[:4] + "-" + datestr[4:6] + "-" + datestr[6:],
                  f"{r.away} @ {r.home}", r.home if r.p_home >= .5 else r.away,
                  max(r.p_home, 1 - r.p_home), r.game_id) for _, r in board.iterrows()]
@@ -201,24 +204,28 @@ def run(datestr):
                 alerts.append("WNBA winner")
         graded.to_csv(os.path.join(LOGS, "graded.csv"), index=False)
 
-    tg_token, tg_chat = os.environ.get("TG_TOKEN"), os.environ.get("TG_CHAT")
-    if tg_token and tg_chat:
-        mode, lines = tg_delta.gate(LOGS, datestr, push)
-        if lines or alerts:
-            body = list(lines) if lines else ["no price changes since the last push"]
-            foot = (f"{skipped} game{'s' if skipped != 1 else ''} skipped, "
-                    f"price floor {BF.PRICE_FLOOR:.2f} / {BF.american(BF.PRICE_FLOOR)}")\
-                   if skipped else None
-            title = "MBM WNBA" + (" · changes since the last push"
-                                     if mode == "delta" and lines else "")
-            colour = notify.GREEN
-            if alerts:
-                body = body + ["", "TRIPWIRE: " + ", ".join(alerts)
-                               + " below base rate, stop betting this board"]
-                colour = notify.RED
-            notify.send(title, body, foot, colour)
-        else:
-            print('board unchanged since the last push, nothing sent')
+    # Delivery runs unconditionally. notify.send() decides for itself whether a webhook is
+    # configured and prints when one is not, which is the check that used to sit here as a
+    # Telegram secrets test. Gating on TG_TOKEN meant a Discord-only repo posted nothing
+    # while printing a message that read like the delta gate had done its job.
+    mode, lines = tg_delta.gate(LOGS, datestr, push)
+    if lines or alerts:
+        body = list(lines) if lines else ["no price changes since the last push"]
+        foot = (f"{skipped} game{'s' if skipped != 1 else ''} skipped, "
+                f"price floor {BF.PRICE_FLOOR:.2f} / {BF.american(BF.PRICE_FLOOR)}")\
+               if skipped else None
+        title = "MBM WNBA" + (" · changes since the last push"
+                                 if mode == "delta" and lines else "")
+        colour = notify.GREEN
+        if alerts:
+            body = body + ["", "TRIPWIRE: " + ", ".join(alerts)
+                           + " below base rate, stop betting this board"]
+            colour = notify.RED
+        notify.send(title, body, foot, colour)
+    elif not push:
+        print("no board to send")
+    else:
+        print("board unchanged since the last push, nothing sent")
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
