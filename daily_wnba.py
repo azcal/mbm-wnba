@@ -217,6 +217,8 @@ def run(datestr):
                                + " below base rate, stop betting this board"]
                 colour = notify.RED
             notify.send(title, body, foot, colour)
+        else:
+            print('board unchanged since the last push, nothing sent')
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
