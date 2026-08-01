@@ -33,12 +33,27 @@ def _chunks(lines, limit):
 
 
 def _discord(url, title, lines, footer, color):
-    for i, part in enumerate(_chunks(lines, DISCORD_LIMIT)):
-        embed = {"title": title if i == 0 else f"{title} (cont.)",
-                 "description": "```\n" + "\n".join(part) + "\n```",
-                 "color": color}
-        if footer and i == len(_chunks(lines, DISCORD_LIMIT)) - 1:
+    # Format the lines with Rich Text Markdown instead of a giant code block
+    formatted_lines = []
+    for line in lines:
+        line_stripped = line.strip()
+        # If the line contains betting odds, format it as an italicized blockquote
+        if line_stripped.startswith("find"):
+            formatted_lines.append(f"> *{line_stripped}*\n")
+        # Otherwise, treat it as a matchup. Use inline code to preserve your column spacing!
+        else:
+            formatted_lines.append(f"`{line_stripped}`")
+
+    # Your existing _chunks function handles this perfectly
+    for i, part in enumerate(_chunks(formatted_lines, DISCORD_LIMIT)):
+        embed = {
+            "title": title if i == 0 else f"{title} (cont.)",
+            "description": "\n".join(part), # Replaced the rigid code fence here
+            "color": color
+        }
+        if footer and i == len(_chunks(formatted_lines, DISCORD_LIMIT)) - 1:
             embed["footer"] = {"text": footer}
+            
         r = requests.post(url, json={"embeds": [embed]}, timeout=20)
         if r.status_code >= 300:
             print(f"discord post failed: {r.status_code} {r.text[:120]}")
