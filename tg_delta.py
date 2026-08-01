@@ -40,7 +40,13 @@ def gate(logs_dir, datestr, board, tol=DEFAULT_TOL, cache_name=CACHE_NAME):
     """
     path = os.path.join(logs_dir, cache_name)
     prev = _load(path)
-    first = prev.get("date") != datestr
+    # FORCE_PUSH=1 makes a run behave as the first of the day and send the whole board.
+    # Without it a refresh that finds nothing changed correctly sends nothing, which is
+    # indistinguishable from a broken notifier when you are testing.
+    forced = os.environ.get("FORCE_PUSH", "").strip() in ("1", "true", "yes")
+    first = forced or prev.get("date") != datestr
+    if forced:
+        print("FORCE_PUSH set, sending the full board")
     old = {} if first else prev.get("board", {})
 
     lines = []
