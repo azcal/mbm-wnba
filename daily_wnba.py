@@ -14,6 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import tg_delta
 import board_format as BF
+import espn_roster as R
 import notify
 
 # A stale copy of a shared file shows up as a wrong-looking board or an AttributeError
@@ -22,7 +23,7 @@ import notify
 # heavy loads. A minimum rather than an exact match, so a later improvement to a
 # shared file does not force an edit here; raise it only for a change this runner needs.
 SHARED_MIN = "2026-08-03"   # board_format.line() field separator, which this board uses
-for _mod in (BF, notify, tg_delta):
+for _mod in (BF, notify, tg_delta, R):
     _have = getattr(_mod, "VERSION", "")
     if _have < SHARED_MIN:
         raise ImportError(
@@ -36,6 +37,7 @@ F.YEARS = list(range(2018, dt.date.today().year + 1))
 
 RAW = "https://raw.githubusercontent.com/sportsdataverse/wehoop-wnba-data/main/wnba"
 ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba"
+LEAGUE = "WNBA"          # label on the injury log rows
 LOGS = os.path.join(HERE, "logs")
 SPEC = json.load(open(os.path.join(HERE, "model_spec.json")))
 CFG, C, A0 = SPEC["cfg"], SPEC["C"], SPEC["a0"]
@@ -79,34 +81,40 @@ def fetch_slate(datestr):
                         "tip": e.get("date", ""), "status": e["status"]["type"]["name"]})
     return out
 
-def fetch_out_ids():
-    """athlete ids currently listed Out, by team abbreviation"""
-    out = {}
-    try:
-        r = requests.get(f"{ESPN}/injuries", timeout=30).json()
-        teams = requests.get(f"{ESPN}/teams", timeout=30).json()
-        id2ab = {t["team"]["id"]: F.norm_abbr(t["team"]["abbreviation"])
-                 for t in teams["sports"][0]["leagues"][0]["teams"]}
-        for tm in r.get("injuries", []):
-            ab = id2ab.get(str(tm.get("id")))
-            outs = set()
-            for inj in tm.get("injuries", []):
-                if str(inj.get("status", "")).lower() == "out":
-                    aid = str(inj.get("athlete", {}).get("id", ""))
-                    if aid:
-                        outs.add(aid)
-            if ab:
-                out[ab] = outs
-    except Exception as ex:
-        print("injury feed unavailable, using last-rotation fallback:", ex)
-    ov = os.path.join(HERE, "overrides.json")
-    if os.path.exists(ov):
-        for ab, ids in json.load(open(ov)).get("out", {}).items():
-            out.setdefault(F.norm_abbr(ab), set()).update(str(x) for x in ids)
-    return out
+def rosters_and_outs(day):
+    """Tonight's rosters and who is unavailable, in one sweep of the roster endpoint.
 
-def expected_actives(pbox_hist, g_hist, team, out_ids):
-    """players who appeared in team's last 3 games, minus those listed Out"""
+    Membership used to be inferred from who appeared in the team's last three box scores.
+    That is wrong for as long as it takes a traded player to appear in one, and wrong in
+    both directions at once: missing from her new team, still counted for her old one.
+    Each athlete on the roster response carries their own injuries array, so this also
+    replaces the separate /injuries call.
+    """
+    ros = R.fetch(ESPN)
+    outs = R.out_ids(ros, os.path.join(HERE, "overrides.json"))
+    if ros["by_ab"]:
+        R.log_statuses(ros, LOGS, day, LEAGUE)
+    return ros, outs
+
+
+def expected_actives(minutes, team, ros, outs):
+    """Players on tonight's roster who have logged minutes recently and are not out.
+
+    `minutes` is keyed by athlete across the whole league, so a player traded in this
+    week is scored on the minutes she has actually been playing rather than on the zero
+    she has with her new team.
+    """
+    ids = ros["by_ab"].get(team, set())
+    return [(aid, minutes[aid], 0.0, 0.0) for aid in ids
+            if aid in minutes and aid not in outs]
+
+
+def expected_actives_from_box(pbox_hist, g_hist, team, out_ids):
+    """Fallback when the roster feed is unreachable: the old last-3-games rotation.
+
+    Kept so a feed outage degrades to the previous behaviour instead of posting an
+    empty board.
+    """
     games = g_hist[(g_hist.home_abbreviation == team) | (g_hist.away_abbreviation == team)]
     recent = games.sort_values("game_date").game_id.tail(3).tolist()
     seen = {}
@@ -115,6 +123,7 @@ def expected_actives(pbox_hist, g_hist, team, out_ids):
             if m and m > 0:
                 seen[str(aid)] = max(seen.get(str(aid), 0.0), float(m))
     return [(aid, m, 0.0, 0.0) for aid, m in seen.items() if aid not in out_ids]
+
 
 def run(datestr):
     download_data()
@@ -125,13 +134,18 @@ def run(datestr):
     pbox = {gid: {tm: [(str(a), m, gs, pm) for a, m, gs, pm in v] for tm, v in d.items()}
             for gid, d in pbox.items()}
     slate = fetch_slate(datestr)
-    out_ids = fetch_out_ids()
+    ros, outs = rosters_and_outs(datestr)
     gdate = pd.Timestamp(dt.datetime.strptime(datestr, "%Y%m%d").date())
+    # Minutes are looked up by athlete across the league, not within a team, so a player
+    # traded in this week is scored on what she has actually been playing.
+    mins = R.recent_minutes(pbox, g, gdate)
 
     pseudo = []
     for s in slate:
-        pbox[s["game_id"]] = {tm: expected_actives(pbox, g, tm, out_ids.get(tm, set()))
-                              for tm in (s["home"], s["away"])}
+        pbox[s["game_id"]] = {
+            tm: (expected_actives(mins, tm, ros, outs) if ros["by_ab"].get(tm)
+                 else expected_actives_from_box(pbox, g, tm, outs))
+            for tm in (s["home"], s["away"])}
         pseudo.append({"game_id": s["game_id"], "game_date": gdate, "game_date_time": gdate,
                        "season": gdate.year, "season_type": 2, "home_abbreviation": s["home"],
                        "away_abbreviation": s["away"], "home_score": np.nan, "away_score": np.nan,
