@@ -43,7 +43,10 @@ SPEC = json.load(open(os.path.join(HERE, "model_spec.json")))
 CFG, C, A0 = SPEC["cfg"], SPEC["C"], SPEC["a0"]
 TRAIN_LO, TRAIN_HI = 2019, 2025  # frozen through end of 2025; rest of 2026 = forward test
 
-MIN_EDGE = 0.05  # required margin: threshold odds pay 5% above model breakeven
+# Tracks board_format rather than restating it. This is the console-side copy, and a
+# local 0.05 here while board_format ran at 0.00 meant the Actions log and Discord
+# quoted different prices for the same game.
+MIN_EDGE = BF.MIN_EDGE
 
 def min_odds(p):
     import math

@@ -11,19 +11,34 @@ import math
 
 # Bumped whenever this file changes. Every runner asserts on it at import, so a repo
 # holding an old copy fails in the workflow's import guard instead of rendering wrong.
-VERSION = "2026-08-03"
+VERSION = "2026-08-04"
 
-MIN_EDGE = 0.05
+# Zero on purpose. The board publishes the EXACT price at which a bet breaks even, and the
+# row reads "or better", so choosing a margin is the bettor's job at the book rather than
+# something baked in unevenly here.
+#
+# It used to be 0.05, which quietly demanded a 5% cushion on every row. That is defensible
+# as a staking rule and indefensible as a displayed price: it made the board say 1.62 when
+# the true fair number was 1.54, so a book at 1.58 looked like a pass when it was a bet.
+MIN_EDGE = 0.00
 
 # Worst decimal price a board will print. Past this the model's number implies odds no book
 # posts, so the row is noise rather than a bet. Books do reach -400 and -500 on heavy soccer
 # and esports favourites, which is why the floor sits there rather than somewhere tighter.
 # Measured cut at 1.25: Soccer 17%, CS2 8%, MMA 0.3%.
+#
+# Held at 1.25 through the move to MIN_EDGE = 0, which means it now bites at p > 80% where
+# it used to bite at p > 84%. Suppressed games are still forecast, still logged and still
+# graded; the floor only decides what reaches Discord.
 PRICE_FLOOR = 1.25
 
 
 def min_odds(p, edge=MIN_EDGE):
-    """Worst decimal price worth taking at probability p."""
+    """The exact decimal price at which a bet at probability p breaks even.
+
+    At edge 0 this is simply 1/p, rounded up to the cent so the printed number is never
+    below the true break-even. Pass a non-zero edge to demand a cushion on top.
+    """
     p = min(max(float(p), 0.01), 0.99)
     return math.ceil((1 + edge) / p * 100) / 100.0
 
@@ -60,8 +75,9 @@ def spread_threshold(cover_fn, i, grid, edge=MIN_EDGE, odds=STD_SPREAD_ODDS):
     """The worst line worth taking on each side at standard spread pricing.
 
     At the model's own line P(cover) is 0.50 by construction, so quoting a price there
-    would print 2.10 / +110 on every game and say nothing. What is actionable is the line
-    at which the normal -110 becomes worth taking, which needs p >= (1+edge)/odds.
+    would print 2.00 / +100 on every game and say nothing. What is actionable is the line
+    at which the normal -110 becomes worth taking, which needs p >= (1+edge)/odds. At
+    edge 0 that is 1/1.91 = 52.36%, the true break-even at standard juice.
 
     Returns (home_line, away_line) in margin space, or None where no line qualifies.
     """
