@@ -1,0 +1,41 @@
+name: explain
+# Manual only. Prints why the model made each of today's WNBA picks, into the Actions log.
+#
+# Read-only by design: it does not write logs/predictions.csv, does not touch
+# push_cache.json, and never calls Discord. Nothing it does can affect the board, so run it
+# as often as you like, including on days the board has already posted.
+#
+# No schedule. It cannot fire on its own. Delete the file when you're done experimenting.
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Day to explain, YYYYMMDD. Blank means today."
+        type: string
+        default: ""
+      words:
+        description: "Max words per blurb"
+        type: string
+        default: "100"
+permissions:
+  contents: read
+jobs:
+  explain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install pandas numpy scikit-learn requests pyarrow
+
+      - name: explain today's picks
+        env:
+          # Deliberately absent, so even a stray notify call would find nothing to post to.
+          DISCORD_WEBHOOK: ""
+        run: |
+          set -e
+          if [ -n "${{ inputs.date }}" ]; then
+            python explain_wnba.py --date "${{ inputs.date }}" --words "${{ inputs.words }}"
+          else
+            python explain_wnba.py --words "${{ inputs.words }}"
+          fi
