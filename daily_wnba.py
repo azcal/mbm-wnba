@@ -128,6 +128,55 @@ def expected_actives_from_box(pbox_hist, g_hist, team, out_ids):
     return [(aid, m, 0.0, 0.0) for aid, m in seen.items() if aid not in out_ids]
 
 
+def grade_from_espn(log):
+    """Fill in results the wehoop mirror has not published yet.
+
+    Grading rides on wehoop's parquet mirrors, which lag. Measured 2026-08-06: its latest
+    completed WNBA game was 2026-08-01, while ESPN had every game through 2026-08-05 with
+    final scores. Four days of forecasts sat ungraded, which stalls the rolling metrics,
+    the tripwire and anything downstream that reads this log.
+
+    ESPN is already the fixture source for this board, so this adds no new dependency. It
+    only touches rows the mirror has left blank, so a wehoop-graded row is never
+    overwritten, and it walks back at most two weeks.
+    """
+    if "result" not in log.columns or log.empty:
+        return log
+    missing = log[log.result.isna()]
+    if missing.empty:
+        return log
+    days = sorted({str(d)[:8].replace("-", "")
+                   for d in missing.date.astype(str)}, reverse=True)[:14]
+    found = {}
+    for day in days:
+        try:
+            r = requests.get(f"{ESPN}/scoreboard", params={"dates": day}, timeout=30).json()
+        except Exception:
+            continue
+        for e in r.get("events", []):
+            if not e.get("status", {}).get("type", {}).get("completed"):
+                continue
+            c = e["competitions"][0]
+            sides = {x["homeAway"]: x for x in c.get("competitors", [])}
+            if "home" not in sides or "away" not in sides:
+                continue
+            try:
+                hs, as_ = float(sides["home"]["score"]), float(sides["away"]["score"])
+            except (TypeError, ValueError):
+                continue
+            if hs == as_:
+                continue
+            found[str(e["id"])] = 1.0 if hs > as_ else 0.0
+    if not found:
+        return log
+    fill = log.game_id.astype(str).map(found)
+    n = int((log.result.isna() & fill.notna()).sum())
+    if n:
+        log["result"] = log.result.fillna(fill)
+        print(f"graded {n} row(s) from ESPN that the wehoop mirror has not published yet")
+    return log
+
+
 def run(datestr):
     download_data()
     _avail_years()
@@ -215,6 +264,7 @@ def run(datestr):
     # grade everything gradeable
     fin = g.set_index("game_id")["home_win"]
     log["result"] = log.game_id.map(fin)
+    log = grade_from_espn(log)
     graded = log[log.result.notna()].copy()
     log.to_csv(pred_path, index=False)
     if len(graded) >= 5:
