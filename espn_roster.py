@@ -29,7 +29,12 @@ import requests
 
 VERSION = "2026-08-03"
 
-H = {"User-Agent": "Mozilla/5.0"}
+# ESPN 403s ANY custom User-Agent and only serves the requests default. Measured
+# 2026-08-05 on the WNBA scoreboard: no header 200, "Mozilla/5.0" 403, an honest
+# identifier with contact details 403, a full browser header set 403. mbm-wnba has
+# always worked because it never set one. Do not "fix" this by adding a UA.
+ESPN_H = {}
+H = ESPN_H
 
 # Statuses that remove a player from tonight's actives.
 #
@@ -49,7 +54,7 @@ def _flat(athletes):
     return athletes
 
 
-def fetch(base, timeout=30):
+def fetch(base, timeout=30, only=None):
     """Pull every team's roster.
 
     Returns a dict with:
@@ -74,6 +79,10 @@ def fetch(base, timeout=30):
         tm = entry.get("team", {})
         tid, ab = str(tm.get("id", "")), tm.get("abbreviation", "")
         if not tid or not ab:
+            continue
+        # `only` limits the sweep to the teams a caller actually needs, which on a
+        # four-game night is eight calls instead of thirty.
+        if only is not None and tid not in {str(x) for x in only}:
             continue
         try:
             r = requests.get(f"{base}/teams/{tid}/roster", headers=H, timeout=timeout).json()
