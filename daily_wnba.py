@@ -15,6 +15,8 @@ sys.path.insert(0, HERE)
 import tg_delta
 import board_format as BF
 import espn_roster as R
+import espn_backfill as EB
+import freshness as FR
 import notify
 
 # A stale copy of a shared file shows up as a wrong-looking board or an AttributeError
@@ -23,7 +25,7 @@ import notify
 # heavy loads. A minimum rather than an exact match, so a later improvement to a
 # shared file does not force an edit here; raise it only for a change this runner needs.
 SHARED_MIN = "2026-08-03"   # board_format.line() field separator, which this board uses
-for _mod in (BF, notify, tg_delta, R):
+for _mod in (BF, notify, tg_delta, R, EB, FR):
     _have = getattr(_mod, "VERSION", "")
     if _have < SHARED_MIN:
         raise ImportError(
@@ -179,12 +181,29 @@ def grade_from_espn(log):
 
 def run(datestr):
     download_data()
+    # The wehoop mirror runs behind, so top the downloaded parquets up from ESPN before
+    # anything reads them. Measured 2026-08-08: the mirror stopped at 2026-08-01 and
+    # eighteen completed games were invisible to the Elo, the form decays and the
+    # availability features. This is separate from grading: that fixes the record, this
+    # fixes the inputs.
+    EB.patch_parquets(ESPN, F.DATA, dt.datetime.strptime(datestr, "%Y%m%d").year,
+                      label="WNBA: ")
     _avail_years()
     g = F.load_games()
     tbox = F.load_team_box()
     pbox = F.load_player_box()
     pbox = {gid: {tm: [(str(a), m, gs, pm) for a, m, gs, pm in v] for tm, v in d.items()}
             for gid, d in pbox.items()}
+
+    # Refuse to price tonight on a history the source knows is incomplete. This is not an
+    # "is it today's data" test: a league that did not play yesterday is current with old
+    # data. It asks whether any completed game exists that this history has not seen.
+    _newest = pd.to_datetime(g[g.home_win.notna()].game_date).max().date()
+    _miss, _ = FR.missed_games("basketball/wnba", _newest)
+    FR.guard("WNBA", _newest, "basketball/wnba")
+    FRESH_LINE = FR.board_line(_newest, checked=(_newest, _miss))
+    SEASON_LINE = None
+
     slate = fetch_slate(datestr)
     ros, outs = rosters_and_outs(datestr)
     gdate = pd.Timestamp(dt.datetime.strptime(datestr, "%Y%m%d").date())
@@ -302,6 +321,9 @@ def run(datestr):
             body = body + ["", "TRIPWIRE: " + ", ".join(alerts)
                            + " below base rate, stop betting this board"]
             colour = notify.RED
+        # The board carries its own provenance. A reader should not have to trust that
+        # the data was current; the row says so.
+        foot = " · ".join([x for x in (FRESH_LINE, SEASON_LINE, foot) if x])
         notify.send(title, body, foot, colour)
     elif not push:
         print("no board to send")
