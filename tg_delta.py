@@ -25,7 +25,7 @@ Drop this file next to the runner in each repo. No dependencies beyond the stand
 """
 import json, os
 
-VERSION = "2026-08-03"
+VERSION = "2026-08-09"
 
 CACHE_NAME = "push_cache.json"
 DEFAULT_TOL = 0.02          # required-odds move that counts as news
@@ -78,7 +78,22 @@ def gate(logs_dir, datestr, board, tol=DEFAULT_TOL, cache_name=CACHE_NAME,
             why = []
             was_match = o.get("match")
             if v.get("match") and was_match and was_match != v["match"]:
-                why.append(f"now {v['match']}, was {was_match}")
+                # Report only the part that moved. The match field often carries the pick
+                # AND the matchup so both a side flip and a replaced opponent are caught,
+                # and echoing the unchanged half twice makes the note twice as long and
+                # half as clear.
+                new_s, old_s = str(v["match"]), str(was_match)
+                cut = 0
+                while (cut < min(len(new_s), len(old_s))
+                       and new_s[len(new_s) - 1 - cut] == old_s[len(old_s) - 1 - cut]):
+                    cut += 1
+                if cut and cut < min(len(new_s), len(old_s)):
+                    tail = new_s[len(new_s) - cut:].lstrip()
+                    new_s, old_s = new_s[:len(new_s) - cut].rstrip(), \
+                        old_s[:len(old_s) - cut].rstrip()
+                    why.append(f"now {new_s}, was {old_s}" + (f" ({tail})" if tail else ""))
+                else:
+                    why.append(f"now {new_s}, was {old_s}")
             try:
                 moved = abs(float(v["min_odds"]) - float(o.get("min_odds")))
             except (TypeError, ValueError):
