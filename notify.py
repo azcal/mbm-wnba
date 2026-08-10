@@ -35,7 +35,7 @@ No webhook means nothing is sent, and the board still runs and grades.
 """
 import os, re, requests
 
-VERSION = "2026-08-03"
+VERSION = "2026-08-09"
 
 GREEN = 0x2E8B57      # normal board
 GREY = 0x8A8A8A       # calibration window, predictions only
@@ -58,7 +58,9 @@ LIVE_ANY = re.compile(r"^\s+or (live .+)$")
 # The delta gate emits these on their own line. Appending a marker to the end of a board
 # row instead would put a second bracket after "or better", which BOARD and ROW both
 # reject, and the row would fall through to the raw handler.
-CHANGE = re.compile(r"^\s+(changed|new):\s*(.+)$")
+# withdrawn included so a fixture dropping off the card renders as subtext
+# alongside the other change notes rather than as a stray code span.
+CHANGE = re.compile(r"^\s+(changed|new|withdrawn):\s*(.+)$")
 
 
 def _flatten(lines):

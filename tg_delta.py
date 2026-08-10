@@ -41,7 +41,7 @@ def _load(path):
 
 
 def gate(logs_dir, datestr, board, tol=DEFAULT_TOL, cache_name=CACHE_NAME,
-         indent=MARK_INDENT):
+         indent=MARK_INDENT, with_keys=False):
     """Decide what to push.
 
     board: {key: {"line": <str to send>, "min_odds": <float>, "match": <optional str>}}
@@ -66,14 +66,16 @@ def gate(logs_dir, datestr, board, tol=DEFAULT_TOL, cache_name=CACHE_NAME,
         print("FORCE_PUSH set, sending the full board")
     old = {} if first else prev.get("board", {})
 
-    lines = []
+    lines, keyed = [], []
     if first:
         lines = [v["line"] for v in board.values()]
+        keyed = [(k, v["line"]) for k, v in board.items()]
     else:
         for k, v in board.items():
             o = old.get(str(k))
             if o is None:
                 lines.append(f"{v['line']}\n{indent}new: not on the last board")
+                keyed.append((k, lines[-1]))
                 continue
             why = []
             was_match = o.get("match")
@@ -102,8 +104,27 @@ def gate(logs_dir, datestr, board, tol=DEFAULT_TOL, cache_name=CACHE_NAME,
                 why.append(f"price was {float(o['min_odds']):.2f}")
             if why:
                 lines.append(f"{v['line']}\n{indent}changed: " + ", ".join(why))
+                keyed.append((k, lines[-1]))
 
     os.makedirs(logs_dir, exist_ok=True)
+    # A fixture that was on the last board and is not on this one. Happens when an
+    # opponent is replaced and the source issues a new id, so the old bout simply vanishes
+    # rather than changing. Without this the channel keeps a published pick for a fight
+    # that will never happen, and nothing ever says otherwise. Measured 2026-08-08: two
+    # UFC bouts were boarded, both opponents were swapped, and neither was withdrawn.
+    if not first:
+        gone = [(k, v) for k, v in old.items() if k not in board]
+        if gone:
+            lines.append("")                      # its own block, not a note on the row above
+            keyed.append(("", ""))
+            for k, v in gone:
+                what = v.get("match") or v.get("line", "").strip()
+                lines.append(f"{indent}withdrawn: {what} is no longer on the card")
+                keyed.append((k, lines[-1]))
+
     with open(path, "w") as fh:
         json.dump({"date": datestr, "board": {str(k): v for k, v in board.items()}}, fh)
-    return ("full" if first else "delta"), lines
+    # with_keys hands back (key, line) pairs so a caller can regroup what survived the
+    # gate, which is how the soccer board puts league headings on a delta push where only
+    # some fixtures are sent. Off by default: the other eight runners unpack two values.
+    return ("full" if first else "delta"), (keyed if with_keys else lines)

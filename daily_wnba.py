@@ -77,6 +77,11 @@ def fetch_slate(datestr):
     r = requests.get(f"{ESPN}/scoreboard", params={"dates": datestr}, timeout=30).json()
     out = []
     for e in r.get("events", []):
+        # Only games that have not started. `completed` alone is not enough: it is False
+        # for a game currently in progress, which would put a pre-game price on a board
+        # for something already under way. state is "pre", "in" or "post".
+        if e.get("status", {}).get("type", {}).get("state") != "pre":
+            continue
         c = e["competitions"][0]
         t = {x["homeAway"]: x["team"]["abbreviation"] for x in c["competitors"]}
         h, a = F.norm_abbr(t["home"]), F.norm_abbr(t["away"])
