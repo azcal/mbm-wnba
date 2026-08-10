@@ -89,7 +89,7 @@ def fetch_slate(datestr):
         if h in F.CITY and a in F.CITY:
             out.append({"game_id": str(e["id"]), "home": h, "away": a,
                         "neutral": bool(c.get("neutralSite", False)),
-                        "tip": e.get("date", ""), "status": e["status"]["type"]["name"]})
+                        "tip": e.get("date", ""), "status": e["status"]["type"]["name"],                         "state": e["status"]["type"].get("state", "")})
     return out
 
 def rosters_and_outs(day):
@@ -186,6 +186,7 @@ def grade_from_espn(log):
 
 
 def run(datestr):
+        chk = CHK.Reporter("WNBA", datestr)
     download_data()
     # The wehoop mirror runs behind, so top the downloaded parquets up from ESPN before
     # anything reads them. Measured 2026-08-08: the mirror stopped at 2026-08-01 and
@@ -211,6 +212,7 @@ def run(datestr):
     SEASON_LINE = None
 
     slate = fetch_slate(datestr)
+    chk.pregame_only(slate, history_ids=set(g.loc[g.home_win.notna(), "game_id"].astype(str)))
     ros, outs = rosters_and_outs(datestr)
     gdate = pd.Timestamp(dt.datetime.strptime(datestr, "%Y%m%d").date())
     # Minutes are looked up by athlete across the league, not within a team, so a player
@@ -286,11 +288,17 @@ def run(datestr):
     else:
         print(f"no games on {datestr}")
 
+    chk.key_join("game_id", g.game_id, log.game_id)
+    chk.model_identity("v1.1", "v1.1")
+    chk.log_board_agreement(push.keys(), log.loc[log.date == datestr, "game_id"])
     # grade everything gradeable
     fin = g.set_index("game_id")["home_win"]
     log["result"] = log.game_id.map(fin)
     log = grade_from_espn(log)
     graded = log[log.result.notna()].copy()
+    chk.column_contract("result", log.result, "binary")
+    chk.column_contract("p_home", log.p_home, "prob")
+    chk.finish(strict=True, require=["freshness"])
     log.to_csv(pred_path, index=False)
     if len(graded) >= 5:
         y = graded.result.astype(int).values
