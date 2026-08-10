@@ -17,6 +17,7 @@ import board_format as BF
 import espn_roster as R
 import espn_backfill as EB
 import freshness as FR
+import mbm_checks as CHK
 import notify
 
 # A stale copy of a shared file shows up as a wrong-looking board or an AttributeError
@@ -25,7 +26,7 @@ import notify
 # heavy loads. A minimum rather than an exact match, so a later improvement to a
 # shared file does not force an edit here; raise it only for a change this runner needs.
 SHARED_MIN = "2026-08-03"   # board_format.line() field separator, which this board uses
-for _mod in (BF, notify, tg_delta, R, EB, FR):
+for _mod in (BF, notify, tg_delta, R, EB, FR, CHK):
     _have = getattr(_mod, "VERSION", "")
     if _have < SHARED_MIN:
         raise ImportError(
@@ -204,8 +205,8 @@ def run(datestr):
     # "is it today's data" test: a league that did not play yesterday is current with old
     # data. It asks whether any completed game exists that this history has not seen.
     _newest = pd.to_datetime(g[g.home_win.notna()].game_date).max().date()
-    _miss, _ = FR.missed_games("basketball/wnba", _newest)
-    FR.guard("WNBA", _newest, "basketball/wnba")
+    _miss, _, _probe_failed = FR.missed_games("basketball/wnba", _newest)
+    FR.guard("WNBA", _newest, "basketball/wnba", grace_days=1, reporter=chk)
     FRESH_LINE = FR.board_line(_newest, checked=(_newest, _miss))
     SEASON_LINE = None
 
