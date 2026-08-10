@@ -211,17 +211,26 @@ class Reporter:
                                   f"-- is this actually a 0/1 outcome column?")
         return self._emit("PASS", f"{check}:{name}", f"{kind} ok, range [{lo:.3g},{hi:.3g}]")
 
-    def no_silent_empty(self, name, is_empty, call_failed, check="no_silent_empty"):
+    def no_silent_empty(self, name, is_empty, call_failed, warn_only=False,
+                        check="no_silent_empty"):
         """An empty result must distinguish 'nothing to do' from 'the call failed'.
 
         Incident 3: slate() swallowed an ESPN 403 and returned {}, so 'no games today'
         printed on a four-game day. The caller must pass an explicit failure flag it
         captured at the call site (e.g. an exception was caught, or status != 200).
+
+        warn_only: when the empty-from-error case should be surfaced but not block the run.
+        Use it where a feed failure means "no board this run" rather than "a wrong board":
+        e.g. the MMA slate feed, whose failure must not also kill the independent
+        Wikipedia-based grading. Default FAILs, which is right for a producer whose empty
+        result would otherwise be published as fact.
         """
         if is_empty and call_failed:
-            return self._emit("FAIL", f"{check}:{name}",
-                              "empty result AND the upstream call failed -- this is an "
-                              "error masquerading as 'nothing to do'")
+            lvl = "WARN" if warn_only else "FAIL"
+            return self._emit(lvl, f"{check}:{name}",
+                              "empty result AND the upstream call failed -- an error "
+                              "masquerading as 'nothing to do'"
+                              + (" (non-blocking)" if warn_only else ""))
         if is_empty:
             return self._emit("WARN", f"{check}:{name}", "empty, upstream reported ok (nothing to do)")
         return self._emit("PASS", f"{check}:{name}", "non-empty")
@@ -241,18 +250,30 @@ class Reporter:
                               f"source for run-to-run reproducibility")
         return self._emit("PASS", f"{check}:{name}", f"{len(items)} item(s) sorted")
 
-    def model_identity(self, logged_tag, expected_tag, check="model_identity"):
-        """The model tag on a logged row matches the head that produced it.
+    def model_identity(self, logged, expected, check="model_identity"):
+        """The model tag(s) on logged rows are all among the shipping head(s).
 
-        Incident 6: a backfill held v1 while v2 shipped, so the dashboard reported a
-        retired model's calibration for weeks. expected_tag should come from the frozen
-        spec, not a second hardcoded literal.
+        Accepts scalars or iterables on both sides. Pass the tags actually present in the
+        log (e.g. `log.model.unique()`) as `logged` and the head(s) the spec declares as
+        `expected` -- NOT a literal against itself, which is vacuous. FAIL if any logged
+        tag is not a declared head: that is incident 6, where a backfill kept `v1` (or
+        CS2's `v1-backfill` map-count) while a new head shipped, so the dashboard graded a
+        retired rating. `expected` must come from the frozen spec, so bumping the head in
+        code without updating the spec trips this.
         """
-        if str(logged_tag) != str(expected_tag):
+        def _norm(x):
+            if isinstance(x, str) or not hasattr(x, "__iter__"):
+                return {str(x)}
+            return {str(v) for v in x if v is not None and str(v) != "nan"}
+        lg, exp = _norm(logged), _norm(expected)
+        if not lg:
+            return self._emit("WARN", check, "no logged model tags to check")
+        extra = lg - exp
+        if extra:
             return self._emit("FAIL", check,
-                              f"board tags rows {logged_tag!r} but the shipping head is "
-                              f"{expected_tag!r}")
-        return self._emit("PASS", check, f"tag {logged_tag!r} matches shipping head")
+                              f"logged tag(s) {sorted(extra)} are not among the shipping "
+                              f"head(s) {sorted(exp)} -- a retired rating is being served")
+        return self._emit("PASS", check, f"tag(s) {sorted(lg)} all match shipping head(s) {sorted(exp)}")
 
     def log_board_agreement(self, pushed_ids, logged_ids_today, check="log_board_agreement"):
         """What the log says was picked matches what was last published.
