@@ -186,7 +186,7 @@ def grade_from_espn(log):
 
 
 def run(datestr):
-        chk = CHK.Reporter("WNBA", datestr)
+    chk = CHK.Reporter("WNBA", datestr)
     download_data()
     # The wehoop mirror runs behind, so top the downloaded parquets up from ESPN before
     # anything reads them. Measured 2026-08-08: the mirror stopped at 2026-08-01 and
