@@ -369,8 +369,7 @@ date,league,athlete_id,player,team,status
 20260812,WNBA,2491205,Skylar Diggins,CHI,Out
 20260812,WNBA,4433630,Rickea Jackson,CHI,Out
 20260812,WNBA,4594786,Sydney Taylor,CHI,Out
-20260812,WNBA,5105732,Raegan Beers,CON,Out
-20260812,WNBA,5106232,Ashlon Jackson,CON,Out
+20260812,WNBA,2490553,Brittney Griner,CON,Day-To-Day
 20260812,WNBA,4329370,Maria Kliundikova,CON,Out
 20260812,WNBA,924,Alysha Clark,DAL,Out
 20260812,WNBA,4433790,Azzi Fudd,DAL,Out
@@ -390,7 +389,6 @@ date,league,athlete_id,player,team,status
 20260812,WNBA,5105752,Alissa Pili,LA,Out
 20260812,WNBA,4280877,Chloe Bibby,MIN,Out
 20260812,WNBA,4683006,Leonie Fiebich,NY,Out
-20260812,WNBA,4281930,Anneli Maley,NY,Out
 20260812,WNBA,4281929,Satou Sabally,NY,Out
 20260812,WNBA,4698730,Kara Dunn,PHX,Out
 20260812,WNBA,3906769,Jovana Nogic,PHX,Out
@@ -400,9 +398,10 @@ date,league,athlete_id,player,team,status
 20260812,WNBA,4682797,Luisa Geiselsoder,POR,Out
 20260812,WNBA,5208982,Carla Leite,POR,Day-To-Day
 20260812,WNBA,5346554,Teja Oblak,POR,Out
+20260812,WNBA,3142242,Amy Okonkwo,POR,Out
 20260812,WNBA,4698736,Flau'jae Johnson,SEA,Out
 20260812,WNBA,5106222,Taina Mair,SEA,Out
 20260812,WNBA,3917453,Katie Lou Samuelson,SEA,Out
-20260812,WNBA,4001679,Julie Allemand,TOR,Day-To-Day
-20260812,WNBA,3910470,Maria Conde,TOR,Day-To-Day
+20260812,WNBA,4001679,Julie Allemand,TOR,Out
+20260812,WNBA,3910470,Maria Conde,TOR,Out
 20260812,WNBA,2988756,Brittney Sykes,TOR,Out
