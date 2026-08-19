@@ -23,9 +23,12 @@ and the whole row then renders as unformatted text.
 
 Drop this file next to the runner in each repo. No dependencies beyond the standard library.
 """
+import datetime as dt
 import json, os
 
-VERSION = "2026-08-09"
+import pandas as pd
+
+VERSION = "2026-08-18"
 
 CACHE_NAME = "push_cache.json"
 DEFAULT_TOL = 0.02          # required-odds move that counts as news
@@ -41,7 +44,7 @@ def _load(path):
 
 
 def gate(logs_dir, datestr, board, tol=DEFAULT_TOL, cache_name=CACHE_NAME,
-         indent=MARK_INDENT, with_keys=False):
+         indent=MARK_INDENT, with_keys=False, report_gone=False):
     """Decide what to push.
 
     board: {key: {"line": <str to send>, "min_odds": <float>, "match": <optional str>}}
@@ -61,9 +64,22 @@ def gate(logs_dir, datestr, board, tol=DEFAULT_TOL, cache_name=CACHE_NAME,
     # Without it a refresh that finds nothing changed correctly sends nothing, which is
     # indistinguishable from a broken notifier when you are testing.
     forced = os.environ.get("FORCE_PUSH", "").strip() in ("1", "true", "yes")
-    first = forced or prev.get("date") != datestr
-    if forced:
-        print("FORCE_PUSH set, sending the full board")
+    # A full board only when there is nothing to compare against, or when it is asked for.
+    # NOT on a date rollover, which is what this used to do: `prev.get("date") != datestr`
+    # meant every midnight reposted the whole board. CS2 carries a two-day horizon and
+    # soccer a seven-day one, so most fixtures survive the rollover unchanged and were being
+    # republished in full every morning at prices nobody had moved. A fixture should post
+    # once, then only when its price or its side actually changes.
+    #
+    # The cache still records the date, for reading the file by hand. It just no longer
+    # decides anything. Set FORCE_PUSH=1 to get a full board deliberately.
+    first = forced or not prev.get("board")
+    if first:
+        # Name the reason, because "the whole board reposted" has more than one cause and
+        # they need different fixes. A missing cache means push_cache.json is not being
+        # committed back from logs/, so every run looks like the first.
+        print("full board: " + ("FORCE_PUSH set" if forced
+                                else "no cache to compare against"))
     old = {} if first else prev.get("board", {})
 
     lines, keyed = [], []
@@ -112,15 +128,64 @@ def gate(logs_dir, datestr, board, tol=DEFAULT_TOL, cache_name=CACHE_NAME,
     # rather than changing. Without this the channel keeps a published pick for a fight
     # that will never happen, and nothing ever says otherwise. Measured 2026-08-08: two
     # UFC bouts were boarded, both opponents were swapped, and neither was withdrawn.
-    if not first:
+    # report_gone is OFF by default and only MMA should turn it on. A fighter withdrawing
+    # is real news: the bout is off, the pick is void, and nothing else says so. A team
+    # sport fixture leaving the board is never that -- the game started, and the pregame
+    # filter drops it by design. Reporting that fires on every game every day, trains the
+    # reader to skip the notice, buries the MMA case it exists for, and makes the board
+    # post something on every run when nothing has actually changed.
+    if not first and report_gone:
+        # A fixture on the last board and not on this one has left for one of two reasons,
+        # and they are not the same news.
+        #
+        # It STARTED. Every runner now filters the slate to pre-game only, so a game that
+        # tips between two runs drops off by design. Reporting that as "withdrawn" fires on
+        # every board every day and trains the reader to ignore the notice, which defeats
+        # the point of having it.
+        #
+        # It was WITHDRAWN. The fixture is gone before its scheduled start: an opponent
+        # replaced, a card reshuffled, a bracket slot resolving to different teams. That is
+        # real news and it is why this block exists -- two UFC bouts were boarded on
+        # 2026-08-08 whose opponents were both swapped, and nothing said so.
+        #
+        # The two are separable by the scheduled start time, which the runner puts in the
+        # push entry as "starts". Without it there is no way to tell, so an entry carrying
+        # no start time is reported with hedged wording rather than a false claim.
+        now = dt.datetime.now(dt.timezone.utc)
         gone = [(k, v) for k, v in old.items() if k not in board]
-        if gone:
-            lines.append("")                      # its own block, not a note on the row above
+        drop = []
+        for k, v in gone:
+            starts = v.get("starts")
+            if starts:
+                try:
+                    ts = pd.Timestamp(starts)
+                    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+                    if ts.to_pydatetime() <= now:
+                        continue          # under way or done: expected, not news
+                except Exception:
+                    pass
+            drop.append((k, v, bool(starts)))
+        if drop:
+            lines.append("")              # its own block, not a note on the row above
             keyed.append(("", ""))
-            for k, v in gone:
+            for k, v, known in drop:
                 what = v.get("match") or v.get("line", "").strip()
-                lines.append(f"{indent}withdrawn: {what} is no longer on the card")
+                # Two labels, because they are two different pieces of news and the first
+                # word is what the reader acts on. A pre-match market closing at kickoff is
+                # routine bookkeeping; a fixture pulled before it was due to start is the
+                # thing worth knowing. Calling both "withdrawn" made the routine case shout.
+                if known:
+                    lines.append(f"{indent}withdrawn: {what} was pulled before its "
+                                 f"start time")
+                else:
+                    lines.append(f"{indent}closed: {what}, pre-match market no longer "
+                                 f"open (started, or the fixture changed)")
                 keyed.append((k, lines[-1]))
+                # Blank line between consecutive notices: Discord collapses adjacent
+                # subtext lines into one run-on block.
+                if (k, v, known) != drop[-1]:
+                    lines.append("")
+                    keyed.append(("", ""))
 
     with open(path, "w") as fh:
         json.dump({"date": datestr, "board": {str(k): v for k, v in board.items()}}, fh)
