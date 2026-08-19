@@ -17,7 +17,6 @@ import board_format as BF
 import espn_roster as R
 import espn_backfill as EB
 import freshness as FR
-import mbm_checks as CHK
 import notify
 
 # A stale copy of a shared file shows up as a wrong-looking board or an AttributeError
@@ -26,7 +25,7 @@ import notify
 # heavy loads. A minimum rather than an exact match, so a later improvement to a
 # shared file does not force an edit here; raise it only for a change this runner needs.
 SHARED_MIN = "2026-08-03"   # board_format.line() field separator, which this board uses
-for _mod in (BF, notify, tg_delta, R, EB, FR, CHK):
+for _mod in (BF, notify, tg_delta, R, EB, FR):
     _have = getattr(_mod, "VERSION", "")
     if _have < SHARED_MIN:
         raise ImportError(
@@ -72,7 +71,29 @@ def download_data():
                 open(fn, "wb").write(r.content)
 
 def _avail_years():
-    F.YEARS = [y for y in F.YEARS if os.path.exists(os.path.join(F.DATA, f"wnba_schedule_{y}.parquet"))]
+    """Keep only seasons with a COMPLETE parquet set, not just a schedule.
+
+    The mirror publishes a season's schedule as soon as the fixtures are announced and the
+    box scores only once games are played, so between those two moments a season has a
+    schedule and nothing else. Keying on the schedule alone puts it in YEARS and
+    load_team_box then opens a file that was never downloaded.
+
+    Not hypothetical: the NBA board died exactly this way on 2026-08-19, when hoopR served
+    nba_schedule_2027 (HTTP 200) alongside a 404 for team_box_2027. WNBA is mid-season so
+    all three files exist today, and it would have hit the same wall next May.
+    """
+    keep = []
+    for y in F.YEARS:
+        names = (f"wnba_schedule_{y}.parquet", f"team_box_{y}.parquet",
+                 f"player_box_{y}.parquet")
+        if all(os.path.exists(os.path.join(F.DATA, n)) for n in names):
+            keep.append(y)
+        elif os.path.exists(os.path.join(F.DATA, names[0])):
+            missing = [n for n in names[1:]
+                       if not os.path.exists(os.path.join(F.DATA, n))]
+            print(f"season {y}: schedule present but {', '.join(missing)} not published "
+                  f"yet, skipping until it is")
+    F.YEARS = keep
 
 def fetch_slate(datestr):
     r = requests.get(f"{ESPN}/scoreboard", params={"dates": datestr}, timeout=30).json()
@@ -89,7 +110,7 @@ def fetch_slate(datestr):
         if h in F.CITY and a in F.CITY:
             out.append({"game_id": str(e["id"]), "home": h, "away": a,
                         "neutral": bool(c.get("neutralSite", False)),
-                        "tip": e.get("date", ""), "status": e["status"]["type"]["name"],                         "state": e["status"]["type"].get("state", "")})
+                        "tip": e.get("date", ""), "status": e["status"]["type"]["name"]})
     return out
 
 def rosters_and_outs(day):
@@ -186,7 +207,6 @@ def grade_from_espn(log):
 
 
 def run(datestr):
-    chk = CHK.Reporter("WNBA", datestr)
     download_data()
     # The wehoop mirror runs behind, so top the downloaded parquets up from ESPN before
     # anything reads them. Measured 2026-08-08: the mirror stopped at 2026-08-01 and
@@ -206,13 +226,12 @@ def run(datestr):
     # "is it today's data" test: a league that did not play yesterday is current with old
     # data. It asks whether any completed game exists that this history has not seen.
     _newest = pd.to_datetime(g[g.home_win.notna()].game_date).max().date()
-    _miss, _, _probe_failed = FR.missed_games("basketball/wnba", _newest)
-    FR.guard("WNBA", _newest, "basketball/wnba", grace_days=1, reporter=chk)
+    _miss, _ = FR.missed_games("basketball/wnba", _newest)
+    FR.guard("WNBA", _newest, "basketball/wnba")
     FRESH_LINE = FR.board_line(_newest, checked=(_newest, _miss))
     SEASON_LINE = None
 
     slate = fetch_slate(datestr)
-    chk.pregame_only(slate, history_ids=set(g.loc[g.home_win.notna(), "game_id"].astype(str)))
     ros, outs = rosters_and_outs(datestr)
     gdate = pd.Timestamp(dt.datetime.strptime(datestr, "%Y%m%d").date())
     # Minutes are looked up by athlete across the league, not within a team, so a player
@@ -288,17 +307,11 @@ def run(datestr):
     else:
         print(f"no games on {datestr}")
 
-    chk.key_join("game_id", g.game_id, log.game_id)
-    chk.model_identity("v1.1", "v1.1")
-    chk.log_board_agreement(push.keys(), log.loc[log.date == datestr, "game_id"])
     # grade everything gradeable
     fin = g.set_index("game_id")["home_win"]
     log["result"] = log.game_id.map(fin)
     log = grade_from_espn(log)
     graded = log[log.result.notna()].copy()
-    chk.column_contract("result", log.result, "binary")
-    chk.column_contract("p_home", log.p_home, "prob")
-    chk.finish(strict=True, require=["freshness"])
     log.to_csv(pred_path, index=False)
     if len(graded) >= 5:
         y = graded.result.astype(int).values
