@@ -1,12 +1,15 @@
 """
 MBM WNBA daily runner (rebuild v1.1, frozen spec).
+
 - Downloads wehoop parquet history, fetches today's slate + ESPN injury report
 - Builds features as of now, fits frozen-window model (train 2019-2025 only), predicts slate
 - Applies early-season shrink (a0 from model_spec.json, fitted pre-2026)
 - Grades all past logged predictions vs finals, reports rolling metrics vs Elo/base-rate floors
+
 Usage: python daily_wnba.py [--date YYYYMMDD]
 """
 import argparse, json, os, sys, datetime as dt
+
 import numpy as np, pandas as pd, requests
 from sklearn.metrics import log_loss, brier_score_loss
 
@@ -17,6 +20,7 @@ import board_format as BF
 import espn_roster as R
 import espn_backfill as EB
 import freshness as FR
+import mbm_checks as CHK
 import notify
 
 # A stale copy of a shared file shows up as a wrong-looking board or an AttributeError
@@ -25,7 +29,7 @@ import notify
 # heavy loads. A minimum rather than an exact match, so a later improvement to a
 # shared file does not force an edit here; raise it only for a change this runner needs.
 SHARED_MIN = "2026-08-03"   # board_format.line() field separator, which this board uses
-for _mod in (BF, notify, tg_delta, R, EB, FR):
+for _mod in (BF, notify, tg_delta, R, EB, FR, CHK):
     _have = getattr(_mod, "VERSION", "")
     if _have < SHARED_MIN:
         raise ImportError(
@@ -50,6 +54,7 @@ TRAIN_LO, TRAIN_HI = 2019, 2025  # frozen through end of 2025; rest of 2026 = fo
 # quoted different prices for the same game.
 MIN_EDGE = BF.MIN_EDGE
 
+
 def min_odds(p):
     import math
     p = min(max(float(p), 0.01), 0.99)
@@ -70,16 +75,17 @@ def download_data():
             if r.status_code == 200:
                 open(fn, "wb").write(r.content)
 
+
 def _avail_years():
     """Keep only seasons with a COMPLETE parquet set, not just a schedule.
 
-    The mirror publishes a season's schedule as soon as the fixtures are announced and the
-    box scores only once games are played, so between those two moments a season has a
-    schedule and nothing else. Keying on the schedule alone puts it in YEARS and
+    The mirror publishes a season's schedule as soon as fixtures are announced and the box
+    scores only once games are played, so between those two moments a season has a schedule
+    and nothing else. Keying on the schedule alone puts that season in YEARS, and
     load_team_box then opens a file that was never downloaded.
 
     Not hypothetical: the NBA board died exactly this way on 2026-08-19, when hoopR served
-    nba_schedule_2027 (HTTP 200) alongside a 404 for team_box_2027. WNBA is mid-season so
+    nba_schedule_2027 at HTTP 200 alongside a 404 for team_box_2027. WNBA is mid-season so
     all three files exist today, and it would have hit the same wall next May.
     """
     keep = []
@@ -94,6 +100,7 @@ def _avail_years():
             print(f"season {y}: schedule present but {', '.join(missing)} not published "
                   f"yet, skipping until it is")
     F.YEARS = keep
+
 
 def fetch_slate(datestr):
     r = requests.get(f"{ESPN}/scoreboard", params={"dates": datestr}, timeout=30).json()
@@ -110,8 +117,9 @@ def fetch_slate(datestr):
         if h in F.CITY and a in F.CITY:
             out.append({"game_id": str(e["id"]), "home": h, "away": a,
                         "neutral": bool(c.get("neutralSite", False)),
-                        "tip": e.get("date", ""), "status": e["status"]["type"]["name"]})
+                        "tip": e.get("date", ""), "status": e["status"]["type"]["name"],                         "state": e["status"]["type"].get("state", "")})
     return out
+
 
 def rosters_and_outs(day):
     """Tonight's rosters and who is unavailable, in one sweep of the roster endpoint.
@@ -207,6 +215,7 @@ def grade_from_espn(log):
 
 
 def run(datestr):
+    chk = CHK.Reporter("WNBA", datestr)
     download_data()
     # The wehoop mirror runs behind, so top the downloaded parquets up from ESPN before
     # anything reads them. Measured 2026-08-08: the mirror stopped at 2026-08-01 and
@@ -226,18 +235,18 @@ def run(datestr):
     # "is it today's data" test: a league that did not play yesterday is current with old
     # data. It asks whether any completed game exists that this history has not seen.
     _newest = pd.to_datetime(g[g.home_win.notna()].game_date).max().date()
-    _miss, _ = FR.missed_games("basketball/wnba", _newest)
-    FR.guard("WNBA", _newest, "basketball/wnba")
+    _miss, _, _probe_failed = FR.missed_games("basketball/wnba", _newest)
+    FR.guard("WNBA", _newest, "basketball/wnba", grace_days=1, reporter=chk)
     FRESH_LINE = FR.board_line(_newest, checked=(_newest, _miss))
     SEASON_LINE = None
 
     slate = fetch_slate(datestr)
+    chk.pregame_only(slate, history_ids=set(g.loc[g.home_win.notna(), "game_id"].astype(str)))
     ros, outs = rosters_and_outs(datestr)
     gdate = pd.Timestamp(dt.datetime.strptime(datestr, "%Y%m%d").date())
     # Minutes are looked up by athlete across the league, not within a team, so a player
     # traded in this week is scored on what she has actually been playing.
     mins = R.recent_minutes(pbox, g, gdate)
-
     pseudo = []
     for s in slate:
         pbox[s["game_id"]] = {
@@ -307,11 +316,18 @@ def run(datestr):
     else:
         print(f"no games on {datestr}")
 
+    chk.key_join("game_id", g.game_id, log.game_id)
+    chk.model_identity("v1.1", "v1.1")
+    chk.log_board_agreement(push.keys(), log.loc[log.date == datestr, "game_id"])
+
     # grade everything gradeable
     fin = g.set_index("game_id")["home_win"]
     log["result"] = log.game_id.map(fin)
     log = grade_from_espn(log)
     graded = log[log.result.notna()].copy()
+    chk.column_contract("result", log.result, "binary")
+    chk.column_contract("p_home", log.p_home, "prob")
+    chk.finish(strict=True, require=["freshness"])
     log.to_csv(pred_path, index=False)
     if len(graded) >= 5:
         y = graded.result.astype(int).values
@@ -356,6 +372,7 @@ def run(datestr):
         print("no board to send")
     else:
         print("board unchanged since the last push, nothing sent")
+
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
