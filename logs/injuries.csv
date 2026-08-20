@@ -723,6 +723,8 @@ date,league,athlete_id,player,team,status
 20260820,WNBA,4398768,Nyara Sabally,TOR,Out
 20260820,WNBA,2988756,Brittney Sykes,TOR,Out
 20260820,WNBA,3058895,Brionna Jones,ATL,Out
+20260820,WNBA,4066548,DiJonai Carrington,CHI,Out
+20260820,WNBA,4433433,Aicha Coulibaly,CHI,Day-To-Day
 20260820,WNBA,2491205,Skylar Diggins,CHI,Out
 20260820,WNBA,4433630,Rickea Jackson,CHI,Out
 20260820,WNBA,4433408,Aaliyah Edwards,CON,Out
@@ -738,9 +740,8 @@ date,league,athlete_id,player,team,status
 20260820,WNBA,5274110,Monique Akoa Makani,LA,Out
 20260820,WNBA,4433404,Cameron Brink,LA,Out
 20260820,WNBA,2491214,Erica Wheeler,LA,Day-To-Day
-20260820,WNBA,5208984,Elena Buenavida,MIN,Out
-20260820,WNBA,4596309,Liatu King,MIN,Out
-20260820,WNBA,4433791,Olivia Miles,MIN,Out
+20260820,WNBA,3917450,Napheesa Collier,MIN,Out
+20260820,WNBA,4433791,Olivia Miles,MIN,Day-To-Day
 20260820,WNBA,4683006,Leonie Fiebich,NY,Out
 20260820,WNBA,2999101,Jonquel Jones,NY,Out
 20260820,WNBA,4281929,Satou Sabally,NY,Out
