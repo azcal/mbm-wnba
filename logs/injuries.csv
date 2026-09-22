@@ -2075,6 +2075,8 @@ date,league,athlete_id,player,team,status
 20260921,WNBA,4684384,Aneesah Morrow,TOR,Out
 20260921,WNBA,2988756,Brittney Sykes,TOR,Out
 20260921,WNBA,4398911,Shakira Austin,WSH,Out
+20260922,WNBA,2998938,Kahleah Copper,PHX,Out
+20260922,WNBA,4698730,Kara Dunn,PHX,Day-To-Day
 20260922,WNBA,3058895,Brionna Jones,ATL,Out
 20260922,WNBA,4066548,DiJonai Carrington,CHI,Out
 20260922,WNBA,2529137,Natasha Cloud,CHI,Out
@@ -2086,12 +2088,14 @@ date,league,athlete_id,player,team,status
 20260922,WNBA,2490553,Brittney Griner,CON,Out
 20260922,WNBA,4398966,Olivia Nelson-Ododa,CON,Out
 20260922,WNBA,4433514,Saniya Rivers,CON,Out
+20260922,WNBA,924,Alysha Clark,DAL,Out
 20260922,WNBA,4433790,Azzi Fudd,DAL,Out
 20260922,WNBA,3913881,Alanna Smith,DAL,Out
 20260922,WNBA,5345473,Costanza Verona,DAL,Out
 20260922,WNBA,4790263,Iliana Rupert,GS,Out
 20260922,WNBA,4433403,Caitlin Clark,IND,Day-To-Day
 20260922,WNBA,4398776,NaLyssa Smith,LV,Out
+20260922,WNBA,5274110,Monique Akoa Makani,LA,Day-To-Day
 20260922,WNBA,3146151,Ariel Atkins,LA,Day-To-Day
 20260922,WNBA,4433404,Cameron Brink,LA,Out
 20260922,WNBA,2566106,Dearica Hamby,LA,Out
@@ -2100,8 +2104,6 @@ date,league,athlete_id,player,team,status
 20260922,WNBA,4433791,Olivia Miles,MIN,Day-To-Day
 20260922,WNBA,4398589,Elizabeth Balogun,NY,Out
 20260922,WNBA,4281929,Satou Sabally,NY,Out
-20260922,WNBA,2998938,Kahleah Copper,PHX,Out
-20260922,WNBA,4698730,Kara Dunn,PHX,Day-To-Day
 20260922,WNBA,3906769,Jovana Nogic,PHX,Out
 20260922,WNBA,3065570,Kelsey Plum,PHX,Out
 20260922,WNBA,4703794,Sarah Ashlee Barker,POR,Out
@@ -2159,7 +2161,7 @@ date,league,athlete_id,player,team,status
 20260922,WNBA,4420318,Ezi Magbegor,SEA,Out
 20260922,WNBA,5106222,Taina Mair,SEA,Out
 20260922,WNBA,3917453,Katie Lou Samuelson,SEA,Out
-20260922,WNBA,2569044,Temi Fagbenle,TOR,Day-To-Day
+20260922,WNBA,2569044,Temi Fagbenle,TOR,Out
 20260922,WNBA,3904576,Marina Mabrey,TOR,Out
 20260922,WNBA,4684384,Aneesah Morrow,TOR,Out
 20260922,WNBA,2988756,Brittney Sykes,TOR,Out
