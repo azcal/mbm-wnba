@@ -4,10 +4,10 @@ name: mbm-wnba-daily
 # 4pm fires at 3pm for the whole season it is played in.
 on:
   schedule:
-    - cron: "0 15 * 3-10 *"       # 9:00am MDT
-    - cron: "0 16 * 1-2,11-12 *"  # 9:00am MST
-    - cron: "0 22 * 3-10 *"       # 4:00pm MDT
-    - cron: "0 23 * 1-2,11-12 *"  # 4:00pm MST
+    # Hourly tick. slot_gate.py decides whether a tick is a board run: GitHub starts
+    # scheduled jobs hours late, so a fixed cron time cannot be trusted. See slot_gate.py.
+    # Board times (Mountain time, daylight saving handled by the gate): am=09:00,pm=16:00
+    - cron: "7 * * * *"
   workflow_dispatch:
     inputs:
       force_push:
@@ -16,12 +16,38 @@ on:
         default: true
 permissions:
   contents: write
+# One run at a time. A second tick waits, then its gate sees the first one's marker.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.g.outputs.run }}
+      slot: ${{ steps.g.outputs.slot }}
+      name: ${{ steps.g.outputs.name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            slot_gate.py
+            logs/last_slot.txt
+          sparse-checkout-cone-mode: false
+      - id: g
+        run: python3 slot_gate.py
+        env:
+          SLOTS: "am=09:00,pm=16:00"
+          SLOT_MARKER: "logs/last_slot.txt"
+          SLOT_EVENT: ${{ github.event_name }}
+          SLOT_SEASON: "05-01..11-05"
   run:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt
       # Import-only check: fails in seconds on a missing file or a syntax error, rather than
@@ -53,9 +79,13 @@ jobs:
       # part that matters: predictions.csv and push_cache.json live there, and without them
       # every run would push the full board as if it were the first of the day.
       - name: commit state
+        env:
+          SLOT: ${{ needs.gate.outputs.slot }}
         run: |
           set -e
           mkdir -p logs && date > logs/last_run.txt
+          # Record the slot so later ticks skip it. Written only here, so a failed run retries.
+          if [ -n "$SLOT" ] && [ "$SLOT" != "manual" ]; then echo "$SLOT" > logs/last_slot.txt; fi
           git config user.name mbm-bot
           git config user.email bot@mbm
           TRACK=""
